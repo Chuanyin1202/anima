@@ -22,4 +22,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Default command
-CMD ["python", "-m", "src.main", "daemon"]
+CMD ["python", "-u", "-m", "src.main", "daemon"]
