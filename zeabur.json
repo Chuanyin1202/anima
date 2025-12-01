@@ -1,0 +1,62 @@
+{
+  "$schema": "https://zeabur.com/schemas/zeabur.json",
+  "build": {
+    "type": "dockerfile",
+    "dockerfile": "Dockerfile"
+  },
+  "start": {
+    "command": "python -m src.main daemon"
+  },
+  "envs": [
+    {
+      "key": "OPENAI_API_KEY",
+      "description": "OpenAI API Key",
+      "required": true
+    },
+    {
+      "key": "THREADS_APP_ID",
+      "description": "Platform App ID (optional for mock mode)",
+      "required": false
+    },
+    {
+      "key": "THREADS_APP_SECRET",
+      "description": "Platform App Secret (optional for mock mode)",
+      "required": false
+    },
+    {
+      "key": "THREADS_ACCESS_TOKEN",
+      "description": "Platform API Access Token (optional for mock mode)",
+      "required": false
+    },
+    {
+      "key": "THREADS_USER_ID",
+      "description": "Platform User ID (optional for mock mode)",
+      "required": false
+    },
+    {
+      "key": "USE_MOCK_THREADS",
+      "description": "Use mock client instead of real API",
+      "default": "false"
+    },
+    {
+      "key": "QDRANT_URL",
+      "description": "Qdrant Vector Database URL",
+      "required": true
+    },
+    {
+      "key": "DATABASE_URL",
+      "description": "PostgreSQL Connection String (optional)",
+      "required": false
+    },
+    {
+      "key": "AGENT_NAME",
+      "description": "Agent identifier name",
+      "default": "AnimaAgent"
+    },
+    {
+      "key": "LOG_LEVEL",
+      "description": "Logging level",
+      "default": "INFO"
+    }
+  ]
+}
