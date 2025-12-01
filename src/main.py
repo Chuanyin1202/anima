@@ -82,6 +82,7 @@ async def create_agent_brain(
     print("=== [6] AgentMemory initialized ===", flush=True)
 
     # Initialize Threads client (real or mock)
+    print(f"=== [7] Creating Threads client (mock={settings.use_mock_threads}) ===", flush=True)
     if settings.use_mock_threads:
         logger.info("using_mock_threads_client")
         threads_client = MockThreadsClient(
@@ -93,17 +94,21 @@ async def create_agent_brain(
             access_token=settings.threads_access_token,
             user_id=settings.threads_user_id,
         )
+    print("=== [8] Threads client created ===", flush=True)
 
     # Initialize simulation logger if in observation mode
     simulation_logger = None
     if observation_mode:
+        print("=== [9] Creating SimulationLogger ===", flush=True)
         simulation_logger = SimulationLogger(settings.simulation_data_dir)
         simulation_logger.start_session(
             persona_name=persona.identity.name,
             persona_file=settings.persona_file,
         )
+        print("=== [10] SimulationLogger started ===", flush=True)
 
     # Create brain
+    print("=== [11] Creating AgentBrain ===", flush=True)
     brain = AgentBrain(
         persona=persona,
         threads_client=threads_client,
@@ -114,6 +119,7 @@ async def create_agent_brain(
         observation_mode=observation_mode,
         simulation_logger=simulation_logger,
     )
+    print("=== [12] AgentBrain created, returning ===", flush=True)
 
     return brain
 
