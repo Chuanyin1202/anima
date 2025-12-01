@@ -9,15 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files
+# Copy all source files first
 COPY pyproject.toml ./
+COPY src/ ./src/
+COPY personas/ ./personas/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir .
-
-# Copy application code
-COPY src/ ./src/
-COPY personas/ ./personas/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
