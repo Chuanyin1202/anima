@@ -95,7 +95,9 @@ class AgentMemory:
         if database_url:
             config["history_db_path"] = database_url
 
+        print("=== [5a] Calling Memory.from_config()... ===", flush=True)
         self.memory = Memory.from_config(config)
+        print("=== [5b] Memory.from_config() completed ===", flush=True)
         logger.info("memory_initialized", agent_id=agent_id)
 
     def _format_metadata(

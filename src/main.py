@@ -49,7 +49,9 @@ async def create_agent_brain(
     Returns:
         Configured AgentBrain instance.
     """
+    print("=== [1] create_agent_brain started ===", flush=True)
     settings = settings or get_settings()
+    print("=== [2] settings loaded ===", flush=True)
 
     # Load persona
     persona_path = Path(settings.persona_file)
@@ -61,12 +63,15 @@ async def create_agent_brain(
         raise FileNotFoundError(f"Persona file not found: {settings.persona_file}")
 
     persona = Persona.from_file(persona_path)
+    print(f"=== [3] persona loaded: {persona.identity.name} ===", flush=True)
     logger.info("persona_loaded", name=persona.identity.name)
 
     # Initialize OpenAI client
     openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+    print("=== [4] OpenAI client created ===", flush=True)
 
     # Initialize memory
+    print("=== [5] Creating AgentMemory... ===", flush=True)
     memory = AgentMemory(
         agent_id=settings.agent_name,
         openai_api_key=settings.openai_api_key,
@@ -74,6 +79,7 @@ async def create_agent_brain(
         qdrant_api_key=settings.qdrant_api_key,
         database_url=settings.database_url,
     )
+    print("=== [6] AgentMemory initialized ===", flush=True)
 
     # Initialize Threads client (real or mock)
     if settings.use_mock_threads:
@@ -137,13 +143,17 @@ async def run_observe_mode(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
+    print("=== [0] run_observe_mode started ===", flush=True)
     settings = get_settings()
     cycles = getattr(args, "cycles", 1)
     use_mock = getattr(args, "mock", False) or settings.use_mock_threads
 
+    print(f"=== Observation mode: cycles={cycles}, mock={use_mock} ===", flush=True)
     logger.info("starting_observation_mode", cycles=cycles, mock=use_mock)
 
+    print("=== Creating agent brain... ===", flush=True)
     brain = await create_agent_brain(settings, observation_mode=True)
+    print("=== Agent brain created ===", flush=True)
 
     try:
         # Choose client based on mock flag
