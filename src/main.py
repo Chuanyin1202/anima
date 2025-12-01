@@ -262,12 +262,20 @@ async def async_main(args: argparse.Namespace) -> int:
     if args.mode == "observe":
         return await run_observe_mode(args)
 
+    settings = get_settings()
+
     try:
         brain = await create_agent_brain()
 
-        async with ThreadsClient(
-            access_token=get_settings().threads_access_token,
-            user_id=get_settings().threads_user_id,
+        # Choose client based on mock setting
+        if settings.use_mock_threads:
+            client_class = MockThreadsClient
+        else:
+            client_class = ThreadsClient
+
+        async with client_class(
+            access_token=settings.threads_access_token or "mock_token",
+            user_id=settings.threads_user_id or "mock_user",
         ) as threads:
             # Update brain with context-managed client
             brain.threads = threads

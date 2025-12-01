@@ -5,7 +5,7 @@
     "dockerfile": "Dockerfile"
   },
   "start": {
-    "command": "python -m src.main daemon"
+    "command": "python -m src.main observe --mock --cycles 1"
   },
   "envs": [
     {
