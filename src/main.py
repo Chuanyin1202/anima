@@ -71,6 +71,7 @@ async def create_agent_brain(
         agent_id=settings.agent_name,
         openai_api_key=settings.openai_api_key,
         qdrant_url=settings.qdrant_url,
+        qdrant_api_key=settings.qdrant_api_key,
         database_url=settings.database_url,
     )
 

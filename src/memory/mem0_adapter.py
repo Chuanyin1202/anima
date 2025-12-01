@@ -56,11 +56,19 @@ class AgentMemory:
         agent_id: str,
         openai_api_key: str,
         qdrant_url: str = "http://localhost:6333",
+        qdrant_api_key: Optional[str] = None,
         database_url: Optional[str] = None,
     ):
         self.agent_id = agent_id
 
         # Configure Mem0
+        qdrant_config = {
+            "url": qdrant_url,
+            "collection_name": f"anima_{agent_id}",
+        }
+        if qdrant_api_key:
+            qdrant_config["api_key"] = qdrant_api_key
+
         config = {
             "llm": {
                 "provider": "openai",
@@ -78,10 +86,7 @@ class AgentMemory:
             },
             "vector_store": {
                 "provider": "qdrant",
-                "config": {
-                    "url": qdrant_url,
-                    "collection_name": f"anima_{agent_id}",
-                },
+                "config": qdrant_config,
             },
             "version": "v1.1",  # Enable graph memory features
         }

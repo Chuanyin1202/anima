@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     qdrant_url: str = Field(
         default="http://localhost:6333", description="Qdrant vector database URL"
     )
+    qdrant_api_key: str | None = Field(
+        default=None, description="Qdrant API key"
+    )
     database_url: str | None = Field(
         default=None, description="PostgreSQL connection string for Mem0 metadata"
     )
