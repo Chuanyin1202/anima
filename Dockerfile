@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy all source files first
-COPY pyproject.toml ./
+# Copy all source files needed for build
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
 COPY personas/ ./personas/
 
