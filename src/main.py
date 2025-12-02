@@ -126,15 +126,19 @@ async def create_agent_brain(
 
 async def run_daemon(brain: AgentBrain) -> None:
     """Run the agent as a daemon with scheduled tasks."""
+    print("=== [DAEMON] Starting scheduler ===", flush=True)
     scheduler = AgentScheduler(brain)
     scheduler.start()
+    print("=== [DAEMON] Scheduler started ===", flush=True)
 
     logger.info("agent_daemon_started")
 
     try:
         # Keep running
+        print("=== [DAEMON] Entering main loop ===", flush=True)
         while True:
             await asyncio.sleep(60)
+            print("=== [DAEMON] Still alive ===", flush=True)
     except KeyboardInterrupt:
         logger.info("shutting_down")
         scheduler.stop()
