@@ -274,13 +274,17 @@ def run_analyze_mode(args: argparse.Namespace) -> int:
 
 async def async_main(args: argparse.Namespace) -> int:
     """Async main function."""
+    print(f"=== async_main: args.mode={args.mode} ===", flush=True)
     # Handle observation mode separately
     if args.mode == "observe":
+        print("=== Entering observe mode ===", flush=True)
         return await run_observe_mode(args)
+    print(f"=== NOT observe mode, running {args.mode} ===", flush=True)
 
     settings = get_settings()
 
     try:
+        print("=== async_main: calling create_agent_brain (no observation_mode) ===", flush=True)
         brain = await create_agent_brain()
 
         # Choose client based on mock setting
