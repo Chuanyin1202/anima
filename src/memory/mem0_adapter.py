@@ -62,10 +62,24 @@ class AgentMemory:
         self.agent_id = agent_id
 
         # Configure Mem0
-        qdrant_config = {
-            "url": qdrant_url,
-            "collection_name": f"anima_{agent_id}",
-        }
+        # Parse URL to handle HTTPS connections properly
+        from urllib.parse import urlparse
+        parsed = urlparse(qdrant_url)
+
+        if parsed.scheme == "https":
+            # HTTPS: 用 host + port 443，讓 qdrant-client 自動偵測 HTTPS
+            qdrant_config = {
+                "host": parsed.netloc,
+                "port": 443,
+                "collection_name": f"anima_{agent_id}",
+            }
+        else:
+            # HTTP 可以直接用 url
+            qdrant_config = {
+                "url": qdrant_url,
+                "collection_name": f"anima_{agent_id}",
+            }
+
         if qdrant_api_key:
             qdrant_config["api_key"] = qdrant_api_key
 

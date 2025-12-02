@@ -9,6 +9,7 @@
 不需要任何 API Token 即可使用。
 """
 
+import hashlib
 import random
 from datetime import datetime, timedelta
 from typing import Optional
@@ -320,8 +321,10 @@ class MockThreadsClient:
         # 轉換為 Post 物件
         posts = []
         for i, post_data in enumerate(relevant_posts[:limit]):
+            # 用內容 hash 生成穩定的 post_id，確保相同內容永遠有相同 ID
+            content_hash = hashlib.md5(post_data["text"].encode()).hexdigest()[:8]
             post = Post(
-                id=f"mock_{uuid4().hex[:8]}",
+                id=f"mock_{content_hash}",
                 media_type=MediaType.TEXT,
                 text=post_data["text"],
                 timestamp=datetime.utcnow() - timedelta(hours=random.randint(1, 48)),
