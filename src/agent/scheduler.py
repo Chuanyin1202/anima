@@ -121,13 +121,18 @@ class AgentScheduler:
     async def _run_interaction_cycle(self) -> None:
         """Internal: Run interaction cycle with error handling."""
         try:
+            print(f"=== [CYCLE] Starting (delay up to {self.random_delay_minutes} min) ===", flush=True)
             # Add random delay
             delay = random.uniform(0, self.random_delay_minutes * 60)
+            print(f"=== [CYCLE] Waiting {delay:.0f} seconds ===", flush=True)
             await asyncio.sleep(delay)
 
+            print("=== [CYCLE] Running brain.run_cycle() ===", flush=True)
             await self.brain.run_cycle()
+            print("=== [CYCLE] Complete ===", flush=True)
 
         except Exception as e:
+            print(f"=== [CYCLE] Error: {e} ===", flush=True)
             logger.error("interaction_cycle_error", error=str(e))
 
     async def _run_daily_reflection(self) -> None:
