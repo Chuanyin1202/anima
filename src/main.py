@@ -2,10 +2,17 @@
 
 import argparse
 import asyncio
+import logging
 import sys
 from pathlib import Path
 
 import structlog
+
+# Configure Python logging level (required for structlog)
+logging.basicConfig(
+    format="%(message)s",
+    level=logging.INFO,
+)
 from openai import AsyncOpenAI
 
 from .agent import AgentBrain, AgentScheduler, Persona

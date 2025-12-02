@@ -160,6 +160,9 @@ class AgentBrain:
             # Step 3: Fetch posts to observe
             posts = await self._fetch_interesting_posts()
             logger.info("posts_fetched", count=len(posts))
+            print(f"\n{'='*60}", flush=True)
+            print(f"📊 抓取到 {len(posts)} 篇貼文", flush=True)
+            print(f"{'='*60}", flush=True)
 
             # Step 4: Observe and potentially interact
             interaction_count = 0
@@ -178,6 +181,12 @@ class AgentBrain:
                     author=post.username,
                 )
 
+                # Print post content
+                post_text = (post.text or "")[:150]
+                print(f"\n📝 貼文 #{post.id[:8]}...", flush=True)
+                print(f"   作者: @{post.username}", flush=True)
+                print(f"   內容: {post_text}{'...' if len(post.text or '') > 150 else ''}", flush=True)
+
                 # Log observation (for simulation)
                 if self.observation_mode and self.simulation_logger:
                     self.simulation_logger.log_observation(post)
@@ -186,6 +195,11 @@ class AgentBrain:
                 should_engage, reason = await self.persona_engine.should_engage(
                     post.text or ""
                 )
+
+                # Print decision
+                decision_icon = "✅" if should_engage else "❌"
+                print(f"   決策: {decision_icon} {'回覆' if should_engage else '跳過'}", flush=True)
+                print(f"   原因: {reason}", flush=True)
 
                 # Log decision (for simulation)
                 if self.observation_mode and self.simulation_logger:
@@ -213,14 +227,19 @@ class AgentBrain:
                         logger.debug("waiting_between_interactions", delay=delay)
                         await asyncio.sleep(delay)
 
+            successful = len([r for r in results if r.success])
             logger.info(
                 "cycle_complete",
-                interactions=len([r for r in results if r.success]),
+                interactions=successful,
                 total_attempts=len(results),
             )
+            print(f"\n{'='*60}", flush=True)
+            print(f"✅ Cycle 完成: {successful}/{len(results)} 次成功互動", flush=True)
+            print(f"{'='*60}\n", flush=True)
 
         except Exception as e:
             logger.error("cycle_error", error=str(e))
+            print(f"\n❌ Cycle 錯誤: {e}", flush=True)
 
         return results
 
@@ -275,19 +294,25 @@ class AgentBrain:
                 context=post.text or "",
                 memory_context=memory_context,
             )
+            print(f"   💬 生成回覆: {response}", flush=True)
 
             # Verify persona adherence
             passes, score = await self.persona_engine.verify_persona_adherence(response)
+            print(f"   🎯 人設符合度: {score:.0%} ({'通過' if passes else '需要修正'})", flush=True)
 
             if not passes:
                 logger.info("refining_response", original_score=score)
+                print(f"   🔄 修正回覆中...", flush=True)
                 response = await self.persona_engine.refine_response(response)
                 refinement_attempts += 1
                 passes, score = await self.persona_engine.verify_persona_adherence(
                     response
                 )
+                print(f"   💬 修正後: {response}", flush=True)
+                print(f"   🎯 新符合度: {score:.0%}", flush=True)
 
                 if not passes:
+                    print(f"   ⚠️ 仍不符合人設，放棄此回覆", flush=True)
                     return InteractionResult(
                         success=False,
                         post_id=post.id,
