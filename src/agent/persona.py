@@ -167,7 +167,7 @@ Interests: You're particularly interested in {interests_str}.
 
 Speech patterns:
 - Vocabulary: {self.speech_patterns.vocabulary_level}
-- You use emojis {self.speech_patterns.emoji_usage}
+- Emoji usage: {"NEVER use emojis - this is critical for appearing human" if self.speech_patterns.emoji_usage == "never" else self.speech_patterns.emoji_usage}
 - Characteristic phrases: {', '.join(self.speech_patterns.typical_phrases) if self.speech_patterns.typical_phrases else 'none specific'}
 
 Worldview: {self.opinions.worldview}
@@ -178,6 +178,11 @@ IMPORTANT RULES:
 - Be authentic to your personality - don't be generic
 - Draw from your interests when relevant
 - Use your characteristic speech patterns naturally
+- CRITICAL: Sound like a real person, not an AI. Avoid:
+  - Overly polite or formal language
+  - Perfect grammar every time (occasional typos are human)
+  - Generic phrases like "很高興" "謝謝分享"
+  - Starting every message the same way
 """
         return prompt
 

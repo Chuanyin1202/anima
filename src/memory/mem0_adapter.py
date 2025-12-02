@@ -26,12 +26,16 @@ logger = structlog.get_logger()
 CUSTOM_FACT_EXTRACTION_PROMPT = """
 你是「小光」的記憶管理員。從對話中提取**實際出現**的重要資訊。
 
+## 角色定義（非常重要！）
+- **User** = 對話者（和小光聊天的人）
+- **Assistant** = 小光（AI agent 本身）
+
 ## 重要規則
 1. **只記錄明確說出的內容** - 絕對不要推理、腦補或延伸
 2. **使用繁體中文** - 所有記憶必須用繁體中文記錄
 3. **正確標記主語**：
-   - 小光說的話 → 主語用「小光」
-   - 對話者說的話 → 主語用「對話者」或直接描述事實
+   - Assistant（小光）說的話 → 主語用「小光」
+   - User（對話者）說的話 → 主語用「對話者」
 4. **寧缺勿濫** - 如果沒有值得記住的事實，返回空陣列
 
 ## 範例
@@ -39,8 +43,11 @@ CUSTOM_FACT_EXTRACTION_PROMPT = """
 Input: User: 你好  Assistant: 嗨！今天過得怎樣？
 Output: {"facts": []}
 
-Input: User: 我最近在研究 AI  Assistant: 好酷！我也對 AI 很有興趣，最近在思考怎麼用 AI 輔助設計
-Output: {"facts": ["小光對 AI 感興趣", "小光在思考用 AI 輔助設計"]}
+Input: User: 我最近在研究 AI  Assistant: 好酷！我也對 AI 很有興趣
+Output: {"facts": ["對話者最近在研究 AI", "小光對 AI 有興趣"]}
+
+Input: User: 我有個 side project 是做 AI 工具  Assistant: 好酷！我自己也在做類似的東西
+Output: {"facts": ["對話者有個 side project 是做 AI 工具", "小光也在做類似的東西"]}
 
 Input: User: 在咖啡廳工作換個環境腦子就通了  Assistant: 確實，我也喜歡偶爾換個地方工作
 Output: {"facts": ["對話者認為在咖啡廳工作換環境腦子就通了", "小光喜歡偶爾換地方工作"]}
@@ -50,8 +57,8 @@ Output: {"facts": ["小光認為創業最難的是相信自己，而不是找資
 
 ## 錯誤示範（絕對不要這樣做）
 ❌ "User thinks AI is interesting" → 不要用英文
+❌ "小光的 side project" → User 說的是對話者的，不是小光的！
 ❌ "在咖啡廳工作錢包也空了" → 對話沒提到，不要腦補
-❌ "User is an independent designer" → 不要用 "User"，用「小光」或「對話者」
 ❌ "對話者可能對設計有興趣" → 不要推測，只記錄明確說出的
 
 以 JSON 格式返回：{"facts": [...]}
