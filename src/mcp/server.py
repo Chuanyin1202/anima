@@ -8,6 +8,7 @@ Provides MCP tools for interacting with Anima:
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +28,39 @@ _persona: Optional[Persona] = None
 _persona_engine: Optional[PersonaEngine] = None
 _memory: Optional[AgentMemory] = None
 _settings = None
+
+# Current session participant identity
+_current_participant_id: str = "participant_unknown"
+
+
+def _extract_identity(message: str) -> Optional[str]:
+    """Extract identity declaration from message.
+
+    Supports: Chinese names, English names, whitespace, non-ASCII
+    Excludes: URLs, @handles
+    """
+    # Name pattern: Chinese, alphanumeric, underscore, hyphen, 1-20 chars
+    NAME = r"([\u4e00-\u9fff\w\-]{1,20})"
+
+    patterns = [
+        rf"我是\s*{NAME}",
+        rf"我叫\s*{NAME}",
+        rf"[Tt]his is\s+{NAME}",
+        rf"[Ii]'m\s+{NAME}",
+        rf"[Mm]y name is\s+{NAME}",
+        rf"叫我\s*{NAME}",
+        rf"改叫我\s*{NAME}",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, message)
+        if match:
+            name = match.group(1)
+            # Exclude URLs or @handles
+            if name.startswith(("http", "@", "www")):
+                continue
+            return f"participant_{name}"
+    return None
 
 
 def _get_settings():
@@ -115,6 +149,21 @@ def _safe_error(message: str, exc: Exception | None = None) -> str:
 
 
 @mcp.tool()
+async def anima_set_user(name: str) -> str:
+    """設定當前對話者的名字。
+
+    Args:
+        name: 對話者的名字
+
+    Returns:
+        確認訊息
+    """
+    global _current_participant_id
+    _current_participant_id = f"participant_{name}"
+    return f"好的，我會記住你是 {name}"
+
+
+@mcp.tool()
 async def anima_chat(message: str, context: str = "") -> str:
     """與 Anima 對話。
 
@@ -125,9 +174,16 @@ async def anima_chat(message: str, context: str = "") -> str:
     Returns:
         Anima 的回應
     """
+    global _current_participant_id
+
     try:
         engine = await _get_persona_engine()
         memory = _get_memory()
+
+        # Try to extract identity from message
+        if identity := _extract_identity(message):
+            _current_participant_id = identity
+            logger.info("identity_detected", participant_id=_current_participant_id)
 
         # Get memory context
         memory_context = memory.get_context_for_response(message)
@@ -143,11 +199,12 @@ async def anima_chat(message: str, context: str = "") -> str:
             memory_context=memory_context,
         )
 
-        # Record the interaction in memory
+        # Record the interaction in memory with participant identity
         memory.record_interaction(
             my_response=response,
             context=message,
             interaction_type="mcp_chat",
+            participant_id=_current_participant_id,
         )
 
         return response

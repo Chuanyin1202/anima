@@ -19,47 +19,38 @@ from pydantic import BaseModel
 
 logger = structlog.get_logger()
 
-# 自定義記憶萃取 prompt，解決以下問題：
-# 1. 強制使用繁體中文
-# 2. 防止 LLM 腦補不存在的內容
-# 3. 正確標記角色（小光 vs 對話者）
+# 自定義記憶萃取 prompt
+# 角色區分由 mem0 的 agent_id vs user_id 機制自動處理
+# 這裡只需要：繁體中文 + 防止腦補
 CUSTOM_FACT_EXTRACTION_PROMPT = """
-你是「小光」的記憶管理員。從對話中提取**實際出現**的重要資訊。
-
-## 角色定義（非常重要！）
-- **User** = 對話者（和小光聊天的人）
-- **Assistant** = 小光（AI agent 本身）
+從對話中提取**實際出現**的重要資訊。
 
 ## 重要規則
 1. **只記錄明確說出的內容** - 絕對不要推理、腦補或延伸
 2. **使用繁體中文** - 所有記憶必須用繁體中文記錄
-3. **正確標記主語**：
-   - Assistant（小光）說的話 → 主語用「小光」
-   - User（對話者）說的話 → 主語用「對話者」
-4. **寧缺勿濫** - 如果沒有值得記住的事實，返回空陣列
+3. **寧缺勿濫** - 如果沒有值得記住的事實，返回空陣列
 
 ## 範例
 
-Input: User: 你好  Assistant: 嗨！今天過得怎樣？
+Input: 你好
 Output: {"facts": []}
 
-Input: User: 我最近在研究 AI  Assistant: 好酷！我也對 AI 很有興趣
-Output: {"facts": ["對話者最近在研究 AI", "小光對 AI 有興趣"]}
+Input: 我最近在研究 AI
+Output: {"facts": ["最近在研究 AI"]}
 
-Input: User: 我有個 side project 是做 AI 工具  Assistant: 好酷！我自己也在做類似的東西
-Output: {"facts": ["對話者有個 side project 是做 AI 工具", "小光也在做類似的東西"]}
+Input: 我有個 side project 是做 AI 工具
+Output: {"facts": ["有個 side project 是做 AI 工具"]}
 
-Input: User: 在咖啡廳工作換個環境腦子就通了  Assistant: 確實，我也喜歡偶爾換個地方工作
-Output: {"facts": ["對話者認為在咖啡廳工作換環境腦子就通了", "小光喜歡偶爾換地方工作"]}
+Input: 在咖啡廳工作換個環境腦子就通了
+Output: {"facts": ["認為在咖啡廳工作換環境腦子就通了"]}
 
-Input: User: 你覺得創業最難的是什麼？  Assistant: 我覺得最難的不是找資金，而是相信自己
-Output: {"facts": ["小光認為創業最難的是相信自己，而不是找資金"]}
+Input: 我覺得創業最難的不是找資金，而是相信自己
+Output: {"facts": ["認為創業最難的是相信自己，而不是找資金"]}
 
 ## 錯誤示範（絕對不要這樣做）
-❌ "User thinks AI is interesting" → 不要用英文
-❌ "小光的 side project" → User 說的是對話者的，不是小光的！
+❌ "thinks AI is interesting" → 不要用英文
 ❌ "在咖啡廳工作錢包也空了" → 對話沒提到，不要腦補
-❌ "對話者可能對設計有興趣" → 不要推測，只記錄明確說出的
+❌ "可能對設計有興趣" → 不要推測，只記錄明確說出的
 
 以 JSON 格式返回：{"facts": [...]}
 """
@@ -231,45 +222,70 @@ class AgentMemory:
         context: str,
         interaction_type: str = "reply",
         post_id: Optional[str] = None,
-    ) -> str:
-        """Record an interaction (e.g., replying to a post).
+        participant_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Record an interaction with proper role separation.
+
+        Uses mem0's built-in role separation:
+        - participant's content → stored with user_id (USER_MEMORY_EXTRACTION_PROMPT)
+        - agent's response → stored with agent_id (AGENT_MEMORY_EXTRACTION_PROMPT)
 
         Args:
             my_response: The response the agent gave
             context: The context/post being responded to
             interaction_type: Type of interaction (reply, like, etc.)
             post_id: The post ID being interacted with
+            participant_id: Identifier for the participant (e.g., "participant_Alex")
 
         Returns:
-            Memory ID
+            Dict with participant_memory_id and agent_memory_id
         """
-        # Store as a conversation for better context extraction
-        messages = [
-            {"role": "user", "content": f"Context: {context}"},
-            {"role": "assistant", "content": my_response},
-        ]
+        # Default to unknown if no participant_id provided
+        user_id = participant_id or "participant_unknown"
 
-        metadata = self._format_metadata(
+        metadata_base = {
+            "interaction_type": interaction_type,
+            "post_id": post_id,
+            "participant_id": participant_id,
+        }
+
+        # 1. Record participant's content (uses USER_MEMORY_EXTRACTION_PROMPT)
+        participant_metadata = self._format_metadata(
             MemoryType.INTERACTION,
-            {
-                "interaction_type": interaction_type,
-                "post_id": post_id,
-            },
+            {**metadata_base, "about": "participant"},
+        )
+        participant_result = self.memory.add(
+            messages=[{"role": "user", "content": context}],
+            user_id=user_id,
+            metadata=participant_metadata,
         )
 
-        result = self.memory.add(
-            messages=messages,
-            user_id=self.agent_id,
-            metadata=metadata,
+        # 2. Record agent's response (uses AGENT_MEMORY_EXTRACTION_PROMPT)
+        agent_metadata = self._format_metadata(
+            MemoryType.INTERACTION,
+            {**metadata_base, "about": "xiao_guang"},
+        )
+        agent_result = self.memory.add(
+            messages=[{"role": "assistant", "content": my_response}],
+            agent_id=self.agent_id,
+            metadata=agent_metadata,
         )
 
-        memory_id = result.get("id", "unknown")
+        participant_memory_id = participant_result.get("id", "unknown")
+        agent_memory_id = agent_result.get("id", "unknown")
+
         logger.info(
             "interaction_recorded",
-            memory_id=memory_id,
+            participant_memory_id=participant_memory_id,
+            agent_memory_id=agent_memory_id,
             interaction_type=interaction_type,
+            participant_id=participant_id,
         )
-        return memory_id
+
+        return {
+            "participant_memory_id": participant_memory_id,
+            "agent_memory_id": agent_memory_id,
+        }
 
     def add_reflection(self, insights: str, based_on: Optional[list[str]] = None) -> str:
         """Store a reflection (high-level insight).

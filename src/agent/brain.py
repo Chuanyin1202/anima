@@ -340,6 +340,7 @@ class AgentBrain:
                     context=post.text or "",
                     interaction_type="reply",
                     post_id=post.id,
+                    participant_id=f"participant_{post.username}" if post.username else None,
                 )
 
                 logger.info(
@@ -365,6 +366,7 @@ class AgentBrain:
                 context=post.text or "",
                 interaction_type="reply",
                 post_id=post.id,
+                participant_id=f"participant_{post.username}" if post.username else None,
             )
 
             # Maybe do a quick reflection
@@ -452,12 +454,13 @@ Guidelines:
         try:
             post_id = await self.threads.create_post(post_content)
 
-            # Record in memory
+            # Record in memory (no participant for original posts)
             self.memory.record_interaction(
                 my_response=post_content,
                 context=f"Original post about {topic}",
                 interaction_type="post",
                 post_id=post_id,
+                participant_id=None,  # Original post has no participant
             )
 
             logger.info("original_post_created", post_id=post_id, topic=topic)
