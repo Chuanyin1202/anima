@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "anima": {
+      "command": "/path/to/anima/.venv/bin/python",
+      "args": ["-m", "src.mcp"],
+      "env": {
+        "PYTHONPATH": "/path/to/anima"
+      }
+    }
+  }
+}

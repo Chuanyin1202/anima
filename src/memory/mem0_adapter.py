@@ -19,6 +19,44 @@ from pydantic import BaseModel
 
 logger = structlog.get_logger()
 
+# 自定義記憶萃取 prompt，解決以下問題：
+# 1. 強制使用繁體中文
+# 2. 防止 LLM 腦補不存在的內容
+# 3. 正確標記角色（小光 vs 對話者）
+CUSTOM_FACT_EXTRACTION_PROMPT = """
+你是「小光」的記憶管理員。從對話中提取**實際出現**的重要資訊。
+
+## 重要規則
+1. **只記錄明確說出的內容** - 絕對不要推理、腦補或延伸
+2. **使用繁體中文** - 所有記憶必須用繁體中文記錄
+3. **正確標記主語**：
+   - 小光說的話 → 主語用「小光」
+   - 對話者說的話 → 主語用「對話者」或直接描述事實
+4. **寧缺勿濫** - 如果沒有值得記住的事實，返回空陣列
+
+## 範例
+
+Input: User: 你好  Assistant: 嗨！今天過得怎樣？
+Output: {"facts": []}
+
+Input: User: 我最近在研究 AI  Assistant: 好酷！我也對 AI 很有興趣，最近在思考怎麼用 AI 輔助設計
+Output: {"facts": ["小光對 AI 感興趣", "小光在思考用 AI 輔助設計"]}
+
+Input: User: 在咖啡廳工作換個環境腦子就通了  Assistant: 確實，我也喜歡偶爾換個地方工作
+Output: {"facts": ["對話者認為在咖啡廳工作換環境腦子就通了", "小光喜歡偶爾換地方工作"]}
+
+Input: User: 你覺得創業最難的是什麼？  Assistant: 我覺得最難的不是找資金，而是相信自己
+Output: {"facts": ["小光認為創業最難的是相信自己，而不是找資金"]}
+
+## 錯誤示範（絕對不要這樣做）
+❌ "User thinks AI is interesting" → 不要用英文
+❌ "在咖啡廳工作錢包也空了" → 對話沒提到，不要腦補
+❌ "User is an independent designer" → 不要用 "User"，用「小光」或「對話者」
+❌ "對話者可能對設計有興趣" → 不要推測，只記錄明確說出的
+
+以 JSON 格式返回：{"facts": [...]}
+"""
+
 
 def parse_timestamp(ts: str) -> datetime:
     """Parse ISO timestamp and ensure timezone-aware.
@@ -78,10 +116,10 @@ class AgentMemory:
         parsed = urlparse(qdrant_url)
 
         if parsed.scheme == "https":
-            # HTTPS: 用 host + port 443，讓 qdrant-client 自動偵測 HTTPS
+            # HTTPS: 保留呼叫者指定的 port，未提供時才回退到 443
             qdrant_config = {
-                "host": parsed.netloc,
-                "port": 443,
+                "host": parsed.hostname or parsed.netloc,
+                "port": parsed.port or 443,
                 "collection_name": f"anima_{agent_id}",
             }
         else:
@@ -100,6 +138,7 @@ class AgentMemory:
                 "config": {
                     "model": "gpt-4o-mini",
                     "api_key": openai_api_key,
+                    "temperature": 0.1,  # 降低隨機性，減少腦補
                 },
             },
             "embedder": {
@@ -113,6 +152,7 @@ class AgentMemory:
                 "provider": "qdrant",
                 "config": qdrant_config,
             },
+            "custom_fact_extraction_prompt": CUSTOM_FACT_EXTRACTION_PROMPT,
             "version": "v1.1",  # Enable graph memory features
         }
 

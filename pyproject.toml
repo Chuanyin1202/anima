@@ -29,6 +29,7 @@ dependencies = [
     "apscheduler>=3.10.0",
     "python-dotenv>=1.0.0",
     "structlog>=23.0.0",
+    "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +43,7 @@ dev = [
 
 [project.scripts]
 anima = "src.main:main"
+anima-mcp = "src.mcp.server:run_server"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
