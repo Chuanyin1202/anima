@@ -21,5 +21,7 @@ RUN pip install --no-cache-dir .
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Default command
+# Default command - daemon mode with mock client
 CMD ["python", "-u", "-m", "src.main", "daemon"]
+
+# Note: Set USE_MOCK_THREADS=true in Zeabur env vars
