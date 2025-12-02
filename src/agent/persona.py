@@ -293,7 +293,14 @@ Respond with just "YES" or "NO" followed by a brief reason."""
 
         result = response.choices[0].message.content or "NO"
         should_engage = result.upper().startswith("YES")
-        reason = "llm_approved" if should_engage else "llm_declined"
+
+        # Extract the actual reason from LLM response
+        # Format: "YES/NO <reason>"
+        parts = result.split(maxsplit=1)
+        if len(parts) > 1:
+            reason = parts[1].strip()
+        else:
+            reason = "興趣相符" if should_engage else "興趣不符"
 
         return should_engage, reason
 

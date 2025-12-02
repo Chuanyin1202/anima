@@ -13,6 +13,10 @@ logging.basicConfig(
     format="%(message)s",
     level=logging.INFO,
 )
+
+# Suppress noisy HTTP request logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 from openai import AsyncOpenAI
 
 from .agent import AgentBrain, AgentScheduler, Persona

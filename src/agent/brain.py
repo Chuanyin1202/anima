@@ -170,8 +170,16 @@ class AgentBrain:
                 if interaction_count >= self.max_interactions_per_cycle:
                     break
 
-                if self._should_skip_post(post):
-                    logger.debug("skipping_post_precheck", post_id=post.id)
+                # Print post content first
+                post_text = (post.text or "")[:150]
+                print(f"\n📝 貼文 #{post.id[:8]}...", flush=True)
+                print(f"   作者: @{post.username}", flush=True)
+                print(f"   內容: {post_text}{'...' if len(post.text or '') > 150 else ''}", flush=True)
+
+                # Check if should skip
+                skip_reason = self._get_skip_reason(post)
+                if skip_reason:
+                    print(f"   ⏭️ 跳過: {skip_reason}", flush=True)
                     continue
 
                 # Record observation (to memory)
@@ -180,12 +188,6 @@ class AgentBrain:
                     post_id=post.id,
                     author=post.username,
                 )
-
-                # Print post content
-                post_text = (post.text or "")[:150]
-                print(f"\n📝 貼文 #{post.id[:8]}...", flush=True)
-                print(f"   作者: @{post.username}", flush=True)
-                print(f"   內容: {post_text}{'...' if len(post.text or '') > 150 else ''}", flush=True)
 
                 # Log observation (for simulation)
                 if self.observation_mode and self.simulation_logger:
@@ -484,13 +486,17 @@ Guidelines:
 
     def _should_skip_post(self, post: Post) -> bool:
         """Determine if a post should be skipped (self or already handled)."""
+        return self._get_skip_reason(post) is not None
+
+    def _get_skip_reason(self, post: Post) -> str | None:
+        """Get the reason for skipping a post, or None if should not skip."""
         if post.username and self._self_username and post.username == self._self_username:
-            return True
+            return "自己的貼文"
 
         if self.memory.has_interacted(post.id):
-            return True
+            return "已經互動過"
 
-        return False
+        return None
 
     async def _ensure_self_profile_cached(self) -> None:
         """Cache own username for self-reply avoidance."""
