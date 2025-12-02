@@ -271,6 +271,20 @@ class AgentMemory:
             metadata=agent_metadata,
         )
 
+        # 3. Copy participant summary to agent scope (for reflection/stats visibility)
+        # This allows search/get_recent/stats to see conversation context
+        summary_metadata = self._format_metadata(
+            MemoryType.INTERACTION,
+            {**metadata_base, "about": "participant_summary", "source_participant": user_id},
+        )
+        # Truncate context for summary (keep it lightweight)
+        summary_content = context[:300] + "..." if len(context) > 300 else context
+        self.memory.add(
+            messages=[{"role": "user", "content": f"[{user_id}] {summary_content}"}],
+            user_id=self.agent_id,
+            metadata=summary_metadata,
+        )
+
         participant_memory_id = participant_result.get("id", "unknown")
         agent_memory_id = agent_result.get("id", "unknown")
 
@@ -316,6 +330,28 @@ class AgentMemory:
     # Memory Retrieval
     # =========================================================================
 
+    def _parse_memory_item(
+        self, item: dict, memory_type_filter: Optional[MemoryType] = None
+    ) -> Optional[MemoryEntry]:
+        """Parse a memory item from mem0 response into MemoryEntry."""
+        memory_data = item.get("memory", "")
+        metadata = item.get("metadata", {})
+        entry_type = MemoryType(metadata.get("memory_type", "observation"))
+
+        if memory_type_filter and entry_type != memory_type_filter:
+            return None
+
+        return MemoryEntry(
+            id=item.get("id", ""),
+            content=memory_data,
+            memory_type=entry_type,
+            created_at=parse_timestamp(
+                metadata.get("timestamp", datetime.now(timezone.utc).isoformat())
+            ),
+            metadata=metadata,
+            relevance_score=item.get("score"),
+        )
+
     def search(
         self,
         query: str,
@@ -323,6 +359,9 @@ class AgentMemory:
         memory_type: Optional[MemoryType] = None,
     ) -> list[MemoryEntry]:
         """Search for relevant memories.
+
+        Queries both agent memories (agent responses) and user memories
+        (observations, old interactions stored under user_id=agent_id).
 
         Args:
             query: Search query
@@ -332,34 +371,37 @@ class AgentMemory:
         Returns:
             List of relevant memory entries
         """
-        results = self.memory.search(
+        # Query agent memories (agent's responses stored with agent_id)
+        agent_results = self.memory.search(
+            query=query,
+            agent_id=self.agent_id,
+            limit=limit,
+        )
+
+        # Query user memories (observations, legacy interactions)
+        user_results = self.memory.search(
             query=query,
             user_id=self.agent_id,
             limit=limit,
         )
 
-        entries = []
-        for item in results.get("results", []):
-            memory_data = item.get("memory", "")
-            metadata = item.get("metadata", {})
-            entry_type = MemoryType(metadata.get("memory_type", "observation"))
+        # Merge and dedupe by ID
+        seen_ids: set[str] = set()
+        entries: list[MemoryEntry] = []
 
-            # Filter by type if specified
-            if memory_type and entry_type != memory_type:
+        for item in agent_results.get("results", []) + user_results.get("results", []):
+            item_id = item.get("id", "")
+            if item_id in seen_ids:
                 continue
+            seen_ids.add(item_id)
 
-            entries.append(
-                MemoryEntry(
-                    id=item.get("id", ""),
-                    content=memory_data,
-                    memory_type=entry_type,
-                    created_at=parse_timestamp(
-                        metadata.get("timestamp", datetime.now(timezone.utc).isoformat())
-                    ),
-                    metadata=metadata,
-                    relevance_score=item.get("score"),
-                )
-            )
+            entry = self._parse_memory_item(item, memory_type)
+            if entry:
+                entries.append(entry)
+
+        # Sort by relevance score (descending), take top limit
+        entries.sort(key=lambda x: x.relevance_score or 0, reverse=True)
+        entries = entries[:limit]
 
         logger.debug("memory_search", query=query[:50], results=len(entries))
         return entries
@@ -371,6 +413,8 @@ class AgentMemory:
     ) -> list[MemoryEntry]:
         """Get recent memories.
 
+        Fetches both agent memories and user memories, merges and sorts by time.
+
         Args:
             limit: Maximum number of memories to retrieve
             memory_type: Filter by memory type (optional)
@@ -378,30 +422,27 @@ class AgentMemory:
         Returns:
             List of recent memory entries
         """
-        all_memories = self.memory.get_all(user_id=self.agent_id)
+        # Get agent memories (agent's responses)
+        agent_memories = self.memory.get_all(agent_id=self.agent_id)
 
-        entries = []
-        for item in all_memories.get("results", []):
-            memory_data = item.get("memory", "")
-            metadata = item.get("metadata", {})
-            entry_type = MemoryType(metadata.get("memory_type", "observation"))
+        # Get user memories (observations, legacy interactions)
+        user_memories = self.memory.get_all(user_id=self.agent_id)
 
-            if memory_type and entry_type != memory_type:
+        # Merge and dedupe
+        seen_ids: set[str] = set()
+        entries: list[MemoryEntry] = []
+
+        for item in agent_memories.get("results", []) + user_memories.get("results", []):
+            item_id = item.get("id", "")
+            if item_id in seen_ids:
                 continue
+            seen_ids.add(item_id)
 
-            entries.append(
-                MemoryEntry(
-                    id=item.get("id", ""),
-                    content=memory_data,
-                    memory_type=entry_type,
-                    created_at=parse_timestamp(
-                        metadata.get("timestamp", datetime.now(timezone.utc).isoformat())
-                    ),
-                    metadata=metadata,
-                )
-            )
+            entry = self._parse_memory_item(item, memory_type)
+            if entry:
+                entries.append(entry)
 
-        # Sort by timestamp and limit
+        # Sort by timestamp (newest first) and limit
         entries.sort(key=lambda x: x.created_at, reverse=True)
         return entries[:limit]
 
@@ -409,20 +450,44 @@ class AgentMemory:
         self,
         post_content: str,
         max_memories: int = 5,
+        participant_id: Optional[str] = None,
     ) -> str:
         """Get relevant context for generating a response.
 
         Args:
             post_content: The post we're responding to
             max_memories: Maximum number of memories to include
+            participant_id: Optional participant ID to also search their memories
 
         Returns:
             Formatted context string
         """
-        memories = self.search(post_content, limit=max_memories)
+        # Request more than needed to allow for merging
+        memories = self.search(post_content, limit=max_memories + 3)
+
+        # If participant_id provided, also search their memories
+        if participant_id:
+            participant_results = self.memory.search(
+                query=post_content,
+                user_id=participant_id,
+                limit=3,
+            )
+            seen_ids = {m.id for m in memories}
+            for item in participant_results.get("results", []):
+                entry = self._parse_memory_item(item)
+                if entry and entry.id not in seen_ids:
+                    memories.append(entry)
+                    seen_ids.add(entry.id)
 
         if not memories:
             return ""
+
+        # Sort by relevance score (fallback to timestamp if no score)
+        memories.sort(
+            key=lambda x: (x.relevance_score or 0, x.created_at.timestamp()),
+            reverse=True,
+        )
+        memories = memories[:max_memories]
 
         context_parts = ["Relevant memories:"]
         for mem in memories:
@@ -445,16 +510,27 @@ class AgentMemory:
             return False
 
     def get_stats(self) -> dict:
-        """Get memory statistics."""
-        all_memories = self.memory.get_all(user_id=self.agent_id)
-        memories_list = all_memories.get("results", [])
+        """Get memory statistics (merges agent and user memories)."""
+        # Get both agent and user memories
+        agent_memories = self.memory.get_all(agent_id=self.agent_id)
+        user_memories = self.memory.get_all(user_id=self.agent_id)
+
+        # Dedupe by ID
+        seen_ids: set[str] = set()
+        unique_items: list[dict] = []
+
+        for item in agent_memories.get("results", []) + user_memories.get("results", []):
+            item_id = item.get("id", "")
+            if item_id not in seen_ids:
+                seen_ids.add(item_id)
+                unique_items.append(item)
 
         stats = {
-            "total_memories": len(memories_list),
+            "total_memories": len(unique_items),
             "by_type": {},
         }
 
-        for item in memories_list:
+        for item in unique_items:
             mem_type = item.get("metadata", {}).get("memory_type", "unknown")
             stats["by_type"][mem_type] = stats["by_type"].get(mem_type, 0) + 1
 

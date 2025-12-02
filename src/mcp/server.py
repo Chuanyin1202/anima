@@ -185,8 +185,11 @@ async def anima_chat(message: str, context: str = "") -> str:
             _current_participant_id = identity
             logger.info("identity_detected", participant_id=_current_participant_id)
 
-        # Get memory context
-        memory_context = memory.get_context_for_response(message)
+        # Get memory context (include participant's memories if known)
+        memory_context = memory.get_context_for_response(
+            message,
+            participant_id=_current_participant_id if _current_participant_id != "participant_unknown" else None,
+        )
 
         # Combine contexts
         full_context = message

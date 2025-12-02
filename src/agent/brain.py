@@ -279,9 +279,11 @@ class AgentBrain:
 
         try:
             # Get relevant memories for context
+            participant_id = f"participant_{post.username}" if post.username else None
             memory_context = self.memory.get_context_for_response(
                 post.text or "",
                 max_memories=5,
+                participant_id=participant_id,
             )
 
             # Parse memory context for logging
@@ -417,7 +419,13 @@ class AgentBrain:
 
         # Choose a topic if not provided
         if not topic:
-            topic = random.choice(self.persona.interests.primary)
+            if self.persona.interests.primary:
+                topic = random.choice(self.persona.interests.primary)
+            elif self.persona.interests.secondary:
+                topic = random.choice(self.persona.interests.secondary)
+            else:
+                logger.warning("no_interests_configured")
+                return None
 
         # Get relevant memories
         memory_context = self.memory.get_context_for_response(topic, max_memories=3)
