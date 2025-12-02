@@ -9,7 +9,7 @@ Memory Types:
 - Reflective: High-level insights generated through reflection
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
@@ -18,6 +18,17 @@ from mem0 import Memory
 from pydantic import BaseModel
 
 logger = structlog.get_logger()
+
+
+def parse_timestamp(ts: str) -> datetime:
+    """Parse ISO timestamp and ensure timezone-aware.
+
+    If the timestamp has no timezone info, assume UTC.
+    """
+    dt = datetime.fromisoformat(ts)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 class MemoryType(str, Enum):
@@ -109,9 +120,7 @@ class AgentMemory:
         if database_url:
             config["history_db_path"] = database_url
 
-        print("=== [5a] Calling Memory.from_config()... ===", flush=True)
         self.memory = Memory.from_config(config)
-        print("=== [5b] Memory.from_config() completed ===", flush=True)
         logger.info("memory_initialized", agent_id=agent_id)
 
     def _format_metadata(
@@ -122,7 +131,7 @@ class AgentMemory:
         """Format metadata for a memory entry."""
         metadata = {
             "memory_type": memory_type.value,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         if extra_metadata:
             metadata.update(extra_metadata)
@@ -281,8 +290,8 @@ class AgentMemory:
                     id=item.get("id", ""),
                     content=memory_data,
                     memory_type=entry_type,
-                    created_at=datetime.fromisoformat(
-                        metadata.get("timestamp", datetime.utcnow().isoformat())
+                    created_at=parse_timestamp(
+                        metadata.get("timestamp", datetime.now(timezone.utc).isoformat())
                     ),
                     metadata=metadata,
                     relevance_score=item.get("score"),
@@ -322,8 +331,8 @@ class AgentMemory:
                     id=item.get("id", ""),
                     content=memory_data,
                     memory_type=entry_type,
-                    created_at=datetime.fromisoformat(
-                        metadata.get("timestamp", datetime.utcnow().isoformat())
+                    created_at=parse_timestamp(
+                        metadata.get("timestamp", datetime.now(timezone.utc).isoformat())
                     ),
                     metadata=metadata,
                 )

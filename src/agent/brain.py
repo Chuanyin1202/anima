@@ -10,7 +10,7 @@ This is the central orchestrator that:
 
 import asyncio
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
@@ -92,7 +92,7 @@ class AgentBrain:
         # Tracking
         self._last_interaction_time: Optional[datetime] = None
         self._interactions_today = 0
-        self._today_date = datetime.utcnow().date()
+        self._today_date = datetime.now(timezone.utc).date()
         self._self_username: Optional[str] = None
 
         if observation_mode:
@@ -139,7 +139,7 @@ class AgentBrain:
         await self._ensure_clients_ready()
 
         # Reset daily counter if new day
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         if today != self._today_date:
             self._interactions_today = 0
             self._today_date = today
@@ -161,7 +161,7 @@ class AgentBrain:
             posts = await self._fetch_interesting_posts()
             logger.info("posts_fetched", count=len(posts))
             print(f"\n{'='*60}", flush=True)
-            print(f"📊 抓取到 {len(posts)} 篇貼文", flush=True)
+            print(f"Fetched {len(posts)} posts", flush=True)
             print(f"{'='*60}", flush=True)
 
             # Step 4: Observe and potentially interact
@@ -172,14 +172,14 @@ class AgentBrain:
 
                 # Print post content first
                 post_text = (post.text or "")[:150]
-                print(f"\n📝 貼文 #{post.id[:8]}...", flush=True)
-                print(f"   作者: @{post.username}", flush=True)
-                print(f"   內容: {post_text}{'...' if len(post.text or '') > 150 else ''}", flush=True)
+                print(f"\n[Post #{post.id[:8]}]", flush=True)
+                print(f"   Author: @{post.username}", flush=True)
+                print(f"   Content: {post_text}{'...' if len(post.text or '') > 150 else ''}", flush=True)
 
                 # Check if should skip
                 skip_reason = self._get_skip_reason(post)
                 if skip_reason:
-                    print(f"   ⏭️ 跳過: {skip_reason}", flush=True)
+                    print(f"   -> Skip: {skip_reason}", flush=True)
                     continue
 
                 # Record observation (to memory)
@@ -199,9 +199,9 @@ class AgentBrain:
                 )
 
                 # Print decision
-                decision_icon = "✅" if should_engage else "❌"
-                print(f"   決策: {decision_icon} {'回覆' if should_engage else '跳過'}", flush=True)
-                print(f"   原因: {reason}", flush=True)
+                decision_str = "[REPLY]" if should_engage else "[SKIP]"
+                print(f"   Decision: {decision_str}", flush=True)
+                print(f"   Reason: {reason}", flush=True)
 
                 # Log decision (for simulation)
                 if self.observation_mode and self.simulation_logger:
@@ -236,12 +236,12 @@ class AgentBrain:
                 total_attempts=len(results),
             )
             print(f"\n{'='*60}", flush=True)
-            print(f"✅ Cycle 完成: {successful}/{len(results)} 次成功互動", flush=True)
+            print(f"Cycle complete: {successful}/{len(results)} successful interactions", flush=True)
             print(f"{'='*60}\n", flush=True)
 
         except Exception as e:
             logger.error("cycle_error", error=str(e))
-            print(f"\n❌ Cycle 錯誤: {e}", flush=True)
+            print(f"\nCycle error: {e}", flush=True)
 
         return results
 
@@ -296,25 +296,25 @@ class AgentBrain:
                 context=post.text or "",
                 memory_context=memory_context,
             )
-            print(f"   💬 生成回覆: {response}", flush=True)
+            print(f"   Response: {response}", flush=True)
 
             # Verify persona adherence
             passes, score = await self.persona_engine.verify_persona_adherence(response)
-            print(f"   🎯 人設符合度: {score:.0%} ({'通過' if passes else '需要修正'})", flush=True)
+            print(f"   Adherence: {score:.0%} ({'PASS' if passes else 'REFINE'})", flush=True)
 
             if not passes:
                 logger.info("refining_response", original_score=score)
-                print(f"   🔄 修正回覆中...", flush=True)
+                print(f"   Refining response...", flush=True)
                 response = await self.persona_engine.refine_response(response)
                 refinement_attempts += 1
                 passes, score = await self.persona_engine.verify_persona_adherence(
                     response
                 )
-                print(f"   💬 修正後: {response}", flush=True)
-                print(f"   🎯 新符合度: {score:.0%}", flush=True)
+                print(f"   Refined: {response}", flush=True)
+                print(f"   New adherence: {score:.0%}", flush=True)
 
                 if not passes:
-                    print(f"   ⚠️ 仍不符合人設，放棄此回覆", flush=True)
+                    print(f"   [WARN] Still not matching persona, skipping", flush=True)
                     return InteractionResult(
                         success=False,
                         post_id=post.id,
@@ -374,7 +374,7 @@ class AgentBrain:
                     context=post.text or "",
                 )
 
-            self._last_interaction_time = datetime.utcnow()
+            self._last_interaction_time = datetime.now(timezone.utc)
 
             logger.info(
                 "interaction_success",

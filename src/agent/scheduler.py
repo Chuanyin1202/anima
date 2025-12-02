@@ -8,7 +8,7 @@ Handles:
 
 import asyncio
 import random
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from typing import Callable, Optional
 
 import structlog
@@ -109,7 +109,7 @@ class AgentScheduler:
         results = await self.brain.run_cycle()
 
         stats = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "successful_interactions": len([r for r in results if r.success]),
             "failed_interactions": len([r for r in results if not r.success]),
             "agent_stats": self.brain.get_stats(),
@@ -121,18 +121,15 @@ class AgentScheduler:
     async def _run_interaction_cycle(self) -> None:
         """Internal: Run interaction cycle with error handling."""
         try:
-            print(f"=== [CYCLE] Starting (delay up to {self.random_delay_minutes} min) ===", flush=True)
             # Add random delay
             delay = random.uniform(0, self.random_delay_minutes * 60)
-            print(f"=== [CYCLE] Waiting {delay:.0f} seconds ===", flush=True)
+            logger.debug("interaction_cycle_delay", seconds=int(delay))
             await asyncio.sleep(delay)
 
-            print("=== [CYCLE] Running brain.run_cycle() ===", flush=True)
             await self.brain.run_cycle()
-            print("=== [CYCLE] Complete ===", flush=True)
+            logger.info("interaction_cycle_complete")
 
         except Exception as e:
-            print(f"=== [CYCLE] Error: {e} ===", flush=True)
             logger.error("interaction_cycle_error", error=str(e))
 
     async def _run_daily_reflection(self) -> None:

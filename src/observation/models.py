@@ -3,7 +3,7 @@
 定義模擬過程中記錄的各種資料結構。
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal, Optional
 from uuid import uuid4
@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field
 def generate_id(prefix: str) -> str:
     """Generate a unique ID with prefix."""
     return f"{prefix}_{uuid4().hex[:8]}"
+
+
+def utc_now() -> datetime:
+    """Get current UTC time with timezone info."""
+    return datetime.now(timezone.utc)
 
 
 class RecordType(str, Enum):
@@ -40,7 +45,7 @@ class ObservationRecord(BaseModel):
     """Record of a post observation."""
 
     id: str = Field(default_factory=lambda: generate_id("obs"))
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
     record_type: Literal["observation"] = "observation"
     post: PostData
 
@@ -49,7 +54,7 @@ class DecisionRecord(BaseModel):
     """Record of an engagement decision."""
 
     id: str = Field(default_factory=lambda: generate_id("dec"))
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
     record_type: Literal["decision"] = "decision"
 
     observation_id: str
@@ -63,7 +68,7 @@ class ResponseRecord(BaseModel):
     """Record of a generated response (not actually posted in observation mode)."""
 
     id: str = Field(default_factory=lambda: generate_id("res"))
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
     record_type: Literal["response"] = "response"
 
     decision_id: str
@@ -80,7 +85,7 @@ class ReflectionRecord(BaseModel):
     """Record of a reflection generated during simulation."""
 
     id: str = Field(default_factory=lambda: generate_id("ref"))
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
     record_type: Literal["reflection"] = "reflection"
 
     reflection_type: Literal["daily", "interaction", "topic"] = "daily"
@@ -100,7 +105,7 @@ class LabelRecord(BaseModel):
     """Record of a human label for a generated response."""
 
     id: str = Field(default_factory=lambda: generate_id("lbl"))
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
     record_type: Literal["label"] = "label"
 
     response_id: str
@@ -118,7 +123,7 @@ class SimulationSession(BaseModel):
     """Metadata for a simulation session."""
 
     id: str = Field(default_factory=lambda: generate_id("sim"))
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=utc_now)
     ended_at: Optional[datetime] = None
     persona_name: str
     persona_file: str

@@ -5,7 +5,7 @@ The agent periodically reflects on recent experiences to form higher-level
 abstractions that guide future behavior.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
@@ -54,7 +54,7 @@ class ReflectionEngine:
         recent_memories = self.memory.get_recent(limit=50)
 
         # Filter to recent time window
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         relevant_memories = [m for m in recent_memories if m.created_at > cutoff]
 
         if len(relevant_memories) < min_memories:
@@ -245,7 +245,7 @@ Be specific but concise.
             return len(recent) >= 10
 
         last_reflection = reflections[0]
-        hours_since = (datetime.utcnow() - last_reflection.created_at).total_seconds() / 3600
+        hours_since = (datetime.now(timezone.utc) - last_reflection.created_at).total_seconds() / 3600
 
         if hours_since < 12:
             return False

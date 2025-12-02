@@ -60,9 +60,7 @@ async def create_agent_brain(
     Returns:
         Configured AgentBrain instance.
     """
-    print("=== [1] create_agent_brain started ===", flush=True)
     settings = settings or get_settings()
-    print("=== [2] settings loaded ===", flush=True)
 
     # Load persona
     persona_path = Path(settings.persona_file)
@@ -74,15 +72,12 @@ async def create_agent_brain(
         raise FileNotFoundError(f"Persona file not found: {settings.persona_file}")
 
     persona = Persona.from_file(persona_path)
-    print(f"=== [3] persona loaded: {persona.identity.name} ===", flush=True)
     logger.info("persona_loaded", name=persona.identity.name)
 
     # Initialize OpenAI client
     openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
-    print("=== [4] OpenAI client created ===", flush=True)
 
     # Initialize memory
-    print("=== [5] Creating AgentMemory... ===", flush=True)
     memory = AgentMemory(
         agent_id=settings.agent_name,
         openai_api_key=settings.openai_api_key,
@@ -90,10 +85,8 @@ async def create_agent_brain(
         qdrant_api_key=settings.qdrant_api_key,
         database_url=settings.database_url,
     )
-    print("=== [6] AgentMemory initialized ===", flush=True)
 
     # Initialize Threads client (real or mock)
-    print(f"=== [7] Creating Threads client (mock={settings.use_mock_threads}) ===", flush=True)
     if settings.use_mock_threads:
         logger.info("using_mock_threads_client")
         threads_client = MockThreadsClient(
@@ -105,21 +98,17 @@ async def create_agent_brain(
             access_token=settings.threads_access_token,
             user_id=settings.threads_user_id,
         )
-    print("=== [8] Threads client created ===", flush=True)
 
     # Initialize simulation logger if in observation mode
     simulation_logger = None
     if observation_mode:
-        print("=== [9] Creating SimulationLogger ===", flush=True)
         simulation_logger = SimulationLogger(settings.simulation_data_dir)
         simulation_logger.start_session(
             persona_name=persona.identity.name,
             persona_file=settings.persona_file,
         )
-        print("=== [10] SimulationLogger started ===", flush=True)
 
     # Create brain
-    print("=== [11] Creating AgentBrain ===", flush=True)
     brain = AgentBrain(
         persona=persona,
         threads_client=threads_client,
@@ -130,26 +119,21 @@ async def create_agent_brain(
         observation_mode=observation_mode,
         simulation_logger=simulation_logger,
     )
-    print("=== [12] AgentBrain created, returning ===", flush=True)
 
     return brain
 
 
 async def run_daemon(brain: AgentBrain) -> None:
     """Run the agent as a daemon with scheduled tasks."""
-    print("=== [DAEMON] Starting scheduler ===", flush=True)
     scheduler = AgentScheduler(brain)
     scheduler.start()
-    print("=== [DAEMON] Scheduler started ===", flush=True)
 
     logger.info("agent_daemon_started")
 
     try:
         # Keep running
-        print("=== [DAEMON] Entering main loop ===", flush=True)
         while True:
             await asyncio.sleep(60)
-            print("=== [DAEMON] Still alive ===", flush=True)
     except KeyboardInterrupt:
         logger.info("shutting_down")
         scheduler.stop()
@@ -164,17 +148,13 @@ async def run_observe_mode(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
-    print("=== [0] run_observe_mode started ===", flush=True)
     settings = get_settings()
     cycles = getattr(args, "cycles", 1)
     use_mock = getattr(args, "mock", False) or settings.use_mock_threads
 
-    print(f"=== Observation mode: cycles={cycles}, mock={use_mock} ===", flush=True)
     logger.info("starting_observation_mode", cycles=cycles, mock=use_mock)
 
-    print("=== Creating agent brain... ===", flush=True)
     brain = await create_agent_brain(settings, observation_mode=True)
-    print("=== Agent brain created ===", flush=True)
 
     try:
         # Choose client based on mock flag
@@ -209,7 +189,7 @@ async def run_observe_mode(args: argparse.Namespace) -> int:
             if session:
                 print()
                 print("=" * 60)
-                print("  Observation Mode 完成")
+                print("  Observation Mode completed")
                 print("=" * 60)
                 print(f"  Session ID: {session.id}")
                 print(f"  Cycles: {session.cycles_completed}")
@@ -219,8 +199,8 @@ async def run_observe_mode(args: argparse.Namespace) -> int:
                 print(f"  Reflections: {session.total_reflections}")
                 print("=" * 60)
                 print()
-                print(f"資料儲存於: {settings.simulation_data_dir}")
-                print("執行 'threads-agent review' 來標註結果")
+                print(f"Data saved to: {settings.simulation_data_dir}")
+                print("Run 'anima review' to label results")
 
         return 0
 
@@ -289,17 +269,13 @@ def run_analyze_mode(args: argparse.Namespace) -> int:
 
 async def async_main(args: argparse.Namespace) -> int:
     """Async main function."""
-    print(f"=== async_main: args.mode={args.mode} ===", flush=True)
     # Handle observation mode separately
     if args.mode == "observe":
-        print("=== Entering observe mode ===", flush=True)
         return await run_observe_mode(args)
-    print(f"=== NOT observe mode, running {args.mode} ===", flush=True)
 
     settings = get_settings()
 
     try:
-        print("=== async_main: calling create_agent_brain (no observation_mode) ===", flush=True)
         brain = await create_agent_brain()
 
         # Choose client based on mock setting
@@ -347,7 +323,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # 正常模式
+  # Normal mode
   anima cycle              # Run one interaction cycle
   anima post               # Create an original post
   anima post --topic "AI"  # Post about a specific topic
@@ -355,13 +331,13 @@ Examples:
   anima stats              # Show agent statistics
   anima daemon             # Run as daemon with scheduler
 
-  # 觀察模式 (模擬但不發文)
+  # Observation mode (simulate without posting)
   anima observe            # Run one observation cycle
   anima observe --cycles 5 # Run 5 observation cycles
   anima observe --mock     # Use mock data (no API token needed)
   anima observe --mock --cycles 3
 
-  # 標註與分析
+  # Labeling and analysis
   anima review             # Start interactive labeling
   anima review --stats     # Show labeling statistics
   anima analyze            # Generate analysis report

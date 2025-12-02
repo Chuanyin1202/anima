@@ -5,7 +5,7 @@
 
 import json
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -94,7 +94,7 @@ class SimulationAnalyzer:
             "adherence_analysis": adherence_analysis,
             "engagement_analysis": engagement_analysis,
             "suggestions": suggestions,
-            "analyzed_at": datetime.utcnow().isoformat(),
+            "analyzed_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def _analyze_issues(

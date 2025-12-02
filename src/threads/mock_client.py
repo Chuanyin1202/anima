@@ -11,7 +11,7 @@
 
 import hashlib
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -236,7 +236,7 @@ class MockThreadsClient:
                 id=f"mock_post_{uuid4().hex[:8]}",
                 media_type=MediaType.TEXT,
                 text="這是我之前發的一篇貼文",
-                timestamp=datetime.utcnow() - timedelta(days=1),
+                timestamp=datetime.now(timezone.utc) - timedelta(days=1),
                 username="mock_persona",
             )
         ]
@@ -248,7 +248,7 @@ class MockThreadsClient:
             id=post_id,
             media_type=MediaType.TEXT,
             text="這是一篇模擬的貼文內容",
-            timestamp=datetime.utcnow() - timedelta(hours=2),
+            timestamp=datetime.now(timezone.utc) - timedelta(hours=2),
             username="some_user",
         )
 
@@ -266,7 +266,7 @@ class MockThreadsClient:
         self._posts_created.append({
             "id": post_id,
             "text": text,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         logger.info("mock_post_created", post_id=post_id, text_preview=text[:50])
         return post_id
@@ -278,7 +278,7 @@ class MockThreadsClient:
             "id": reply_id,
             "parent_id": post_id,
             "text": text,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         logger.info(
             "mock_reply_created",
@@ -327,7 +327,7 @@ class MockThreadsClient:
                 id=f"mock_{content_hash}",
                 media_type=MediaType.TEXT,
                 text=post_data["text"],
-                timestamp=datetime.utcnow() - timedelta(hours=random.randint(1, 48)),
+                timestamp=datetime.now(timezone.utc) - timedelta(hours=random.randint(1, 48)),
                 username=post_data["username"],
             )
             posts.append(post)

@@ -4,7 +4,7 @@
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -100,7 +100,7 @@ class SimulationLogger:
         if not self._current_session:
             return None
 
-        self._current_session.ended_at = datetime.utcnow()
+        self._current_session.ended_at = datetime.now(timezone.utc)
         self._append_to_file(
             self.sessions_file, self._current_session.model_dump()
         )
