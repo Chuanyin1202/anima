@@ -1,14 +1,15 @@
 # Anima 🤖
 
-一個具有持久記憶和一致人格的 AI Agent，能在各種社群平台上自主互動。
+具備持久記憶、人格一致性與身份識別的社群 AI Agent，支援 Threads/MCP 本地對話與模擬觀察模式。
 
 ## 特色
 
-- **持久記憶**：使用 Mem0 實現三層記憶系統（情節、語義、反思）
-- **人格一致性**：借鏡 TinyTroupe 的 persona specification 框架
-- **反思機制**：借鏡 Generative Agents 的 reflection 機制，定期產生高層次洞見
-- **平台無關**：可擴展支援多種社群平台
-- **可自訂人格**：透過 JSON 檔案定義角色個性
+- **持久記憶**：Mem0 三層記憶（情節/語義/反思），並分離 agent/user scope，確保對話者與小光的內容不混淆
+- **人格一致性**：借鏡 TinyTroupe 的 persona schema，產生/校驗回覆
+- **反思機制**：借鏡 Generative Agents，定期生成高層次洞見
+- **身份識別**：MCP 模式可「我是/我叫」或 `anima_set_user` 指定身份，記憶會標記 participant_xxx
+- **平台無關**：CLI/daemon/MCP 模式並行，易於接到其他平台
+- **可自訂人格**：透過 JSON 定義角色，隨時切換
 
 ## 架構
 
@@ -43,24 +44,19 @@ poetry install
 
 ### 2. 設定環境變數
 
-複製 `.env.example` 到 `.env` 並填入你的 API keys：
+必填（可用 `.env`）：
+- `OPENAI_API_KEY`
+- `THREADS_ACCESS_TOKEN` / `THREADS_USER_ID`（使用 Threads 時）
+- `PERSONA_FILE`（預設 `personas/default.json`）
+- `QDRANT_URL` / `QDRANT_API_KEY`（雲端 Qdrant）或本地 `http://localhost:6333`
 
-```bash
-cp .env.example .env
-```
-
-必要的環境變數：
-- `OPENAI_API_KEY`：OpenAI API key
-- `THREADS_ACCESS_TOKEN`：平台 API access token
-- `THREADS_USER_ID`：平台 user ID
-
-### 3. 啟動本地服務（開發用）
+### 3. 啟動本地服務（開發用，可選）
 
 ```bash
 docker-compose up -d qdrant postgres
 ```
 
-### 4. 運行
+### 4. 運行 CLI/Daemon
 
 ```bash
 # 執行一次互動循環
@@ -87,6 +83,37 @@ anima review --stats     # 查看統計
 anima analyze            # 產生分析報告
 ```
 
+### 5. MCP（Claude Desktop 等）
+
+1. 建立 `mcp-config.json`，套用專案絕對路徑（API key 等從專案 `.env` 讀取，不用在這裡塞）：
+   ```json
+   {
+     "mcpServers": {
+       "anima": {
+         "command": "/path/to/anima/.venv/bin/python",
+         "args": ["-m", "src.mcp"],
+         "env": {
+           "PYTHONPATH": "/path/to/anima"
+         }
+       }
+     }
+   }
+   ```
+2. 在 MCP 客戶端載入。對話時可說「我是 Alex」或呼叫 `anima_set_user("Alex")` 讓記憶標記為 `participant_Alex`。
+
+**可用 MCP 工具：**
+
+| 工具 | 說明 |
+|------|------|
+| `anima_chat` | 與 Anima 對話（自動識別身份、記錄記憶） |
+| `anima_set_user` | 設定當前對話者的名字 |
+| `anima_search_memory` | 搜尋 Anima 的記憶 |
+| `anima_add_memory` | 新增一則記憶 |
+| `anima_get_recent_memories` | 取得最近的記憶 |
+| `anima_reflect` | 讓 Anima 進行反思 |
+| `anima_get_persona` | 取得人格資訊 |
+| `anima_memory_stats` | 取得記憶統計 |
+
 ## 自訂人格
 
 編輯 `personas/default.json` 或建立新的人格檔案：
@@ -110,14 +137,10 @@ anima analyze            # 產生分析報告
 
 詳細的 schema 請參考 `src/agent/persona.py`。
 
-## 部署到 Zeabur
+## 記憶與身份設計（重點）
 
-1. Fork 此 repo
-2. 在 Zeabur 建立新專案
-3. 連接 GitHub repo
-4. 新增服務：Qdrant、PostgreSQL
-5. 設定環境變數
-6. 部署！
+- 互動會拆成兩筆：`participant_*`（對話者內容，user scope）與 `agent_id`（小光回覆，agent scope），並複寫一份摘要到 agent scope，確保反思/統計可見對話者資訊。
+- `search/get_recent/stats` 會合併 agent/user 記憶；MCP 身份由「我是/我叫」或 `anima_set_user` 決定。
 
 ## 授權
 
