@@ -177,8 +177,8 @@ class AgentScheduler:
     async def _harvest_ideas(self) -> None:
         """Internal: Run idea harvesting script to update idea pool."""
         try:
-            from ..utils.harvest_ideas import main as harvest_main
-            await harvest_main()
+            from ..utils.harvest_ideas import DEFAULT_FEEDS, main as harvest_main
+            await harvest_main(feeds=DEFAULT_FEEDS, limit=8)
             logger.info("ideas_harvested")
         except Exception as e:
             logger.error("idea_harvest_failed", error=str(e))
