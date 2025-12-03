@@ -15,7 +15,7 @@
   "speech_patterns": {
     "vocabulary_level": "moderate",
     "sentence_length": "medium",
-    "emoji_usage": "occasional",
+    "emoji_usage": "never",
     "typical_phrases": [
       "有趣",
       "笑死",

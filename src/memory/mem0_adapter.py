@@ -134,9 +134,8 @@ class AgentMemory:
             "llm": {
                 "provider": "openai",
                 "config": {
-                    "model": "gpt-4o-mini",
+                    "model": "gpt-5-nano",
                     "api_key": openai_api_key,
-                    "temperature": 0.1,  # 降低隨機性，減少腦補
                 },
             },
             "embedder": {

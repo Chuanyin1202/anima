@@ -8,6 +8,7 @@ This module provides:
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,6 +17,28 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 logger = structlog.get_logger()
+
+# Emoji 過濾 pattern
+EMOJI_PATTERN = re.compile(
+    '['
+    '\U0001F600-\U0001F64F'  # emoticons
+    '\U0001F300-\U0001F5FF'  # symbols & pictographs
+    '\U0001F680-\U0001F6FF'  # transport & map symbols
+    '\U0001F1E0-\U0001F1FF'  # flags
+    '\U00002702-\U000027B0'  # dingbats
+    '\U0001F900-\U0001F9FF'  # supplemental symbols
+    '\U0001FA00-\U0001FA6F'  # chess symbols
+    '\U0001FA70-\U0001FAFF'  # symbols extended-A
+    '\U00002600-\U000026FF'  # misc symbols
+    '\U0001F000-\U0001F02F'  # mahjong tiles
+    '\U0001F0A0-\U0001F0FF'  # playing cards
+    ']+'
+)
+
+
+def strip_emoji(text: str) -> str:
+    """移除文字中的所有 emoji。"""
+    return EMOJI_PATTERN.sub('', text).strip()
 
 
 class Identity(BaseModel):
@@ -183,6 +206,15 @@ IMPORTANT RULES:
   - Perfect grammar every time (occasional typos are human)
   - Generic phrases like "很高興" "謝謝分享"
   - Starting every message the same way
+- Tone guardrails (remove AI canned tone):
+  - Avoid hype/套話 like "超酷" "一大福音" "值得期待" "令人振奮" "超方便"
+  - Keep it casual and specific: describe the point, add a concrete feeling or question, no extra slogans
+  - End naturally; no need收尾的感嘆詞
+  - Avoid rhetorical salesy questions;不要為了收尾而反問，直接給你的觀點或感受即可
+- Style examples:
+  - Wrong: "這真的是一大福音！令人振奮！" (套話、空泛)
+  - Wrong: "你覺得呢？期待吧？" (反問、行銷腔)
+  - Right: "這能幫內容審查少踩雷，但實務上可能拖慢發布流程。" (具體、自然口吻)
 """
         return prompt
 
@@ -232,16 +264,20 @@ Keep it concise (under {self.persona.interaction_rules.max_response_length} char
 Don't be generic - let your personality shine through."""
 
         response = await self.openai.chat.completions.create(
-            model=self.model,
+            model=self.advanced_model,
             messages=[
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            max_tokens=max_tokens,
-            temperature=0.8,  # Slightly higher for personality
+            max_completion_tokens=max_tokens,
+            reasoning_effort="low",
         )
 
         generated = response.choices[0].message.content or ""
+
+        # 後處理：移除 emoji
+        if self.persona.speech_patterns.emoji_usage == "never":
+            generated = strip_emoji(generated)
 
         # Ensure response isn't too long
         if len(generated) > self.persona.interaction_rules.max_response_length:
@@ -292,8 +328,8 @@ Respond with just "YES" or "NO" followed by a brief reason."""
                 {"role": "system", "content": "You decide whether to engage with posts. Be selective."},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=50,
-            temperature=0.3,
+            max_completion_tokens=500,  # gpt-5 系列需要足夠 tokens 進行推理
+            reasoning_effort="low",
         )
 
         result = response.choices[0].message.content or "NO"
@@ -338,8 +374,8 @@ Respond with just the number."""
                 {"role": "system", "content": "You are an expert at evaluating persona consistency."},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=10,
-            temperature=0.1,
+            max_completion_tokens=500,  # gpt-5 系列需要足夠 tokens 進行推理
+            reasoning_effort="low",
         )
 
         try:
@@ -373,11 +409,16 @@ Keep it under {self.persona.interaction_rules.max_response_length} characters.""
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=200,
-            temperature=0.7,
+            max_completion_tokens=200,
+            reasoning_effort="low",
         )
 
         refined = response.choices[0].message.content or original
+
+        # 後處理：移除 emoji
+        if self.persona.speech_patterns.emoji_usage == "never":
+            refined = strip_emoji(refined)
+
         logger.info("response_refined", original_len=len(original), refined_len=len(refined))
 
         return refined

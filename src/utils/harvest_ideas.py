@@ -70,7 +70,13 @@ def dedupe_entries(entries: Iterable[dict]) -> list[dict]:
     return unique
 
 
-async def summarize_entries(entries: list[dict], client: AsyncOpenAI, persona_name: str, limit: int) -> list[dict]:
+async def summarize_entries(
+    entries: list[dict],
+    client: AsyncOpenAI,
+    persona_name: str,
+    limit: int,
+    model_name: str,
+) -> list[dict]:
     """Use OpenAI to turn entries into Chinese, human-sounding snippets."""
     items = entries[:limit]
     summaries: list[dict] = []
@@ -85,10 +91,9 @@ async def summarize_entries(entries: list[dict], client: AsyncOpenAI, persona_na
 連結：{e.get('link','')}
 """
         resp = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model_name,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=220,
+            max_completion_tokens=220,
         )
         text = resp.choices[0].message.content or ""
         snippets = text.strip()
@@ -130,7 +135,13 @@ async def main(feeds: Optional[list[str]] = None, limit: int = 8) -> int:
     unique_entries = dedupe_entries(all_entries)
 
     # Summarize
-    summarized_items = await summarize_entries(unique_entries, client, settings.agent_name, limit=limit)
+    summarized_items = await summarize_entries(
+        unique_entries,
+        client,
+        settings.agent_name,
+        limit=limit,
+        model_name=settings.openai_model,
+    )
 
     # Save markdown for human browsing
     ideas_dir = Path("data/ideas")

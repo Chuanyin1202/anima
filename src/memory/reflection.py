@@ -140,8 +140,8 @@ Consider: What did you learn? How does this fit with your existing views?
                     {"role": "system", "content": self.persona_description},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=150,
-                temperature=0.7,
+                max_completion_tokens=150,
+                reasoning_effort="medium",
             )
 
             reflection = response.choices[0].message.content
@@ -212,8 +212,8 @@ Be specific but concise.
                     },
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=500,
-                temperature=0.7,
+                max_completion_tokens=500,
+                reasoning_effort="medium",
             )
 
             reflection = response.choices[0].message.content

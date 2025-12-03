@@ -24,9 +24,9 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = Field(..., description="OpenAI API key")
-    openai_model: str = Field(default="gpt-4o-mini", description="Default OpenAI model")
+    openai_model: str = Field(default="gpt-5-nano", description="Default OpenAI model")
     openai_model_advanced: str = Field(
-        default="gpt-4o", description="Advanced model for complex tasks"
+        default="gpt-5.1", description="Advanced model for complex tasks"
     )
 
     # Threads API

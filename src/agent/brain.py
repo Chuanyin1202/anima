@@ -516,13 +516,13 @@ Guidelines:
 """
 
         response = await self.openai.chat.completions.create(
-            model=self.persona_engine.model,
+            model=self.persona_engine.advanced_model,
             messages=[
                 {"role": "system", "content": self.persona.get_system_prompt()},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=150,
-            temperature=0.9,
+            max_completion_tokens=150,
+            reasoning_effort="low",
         )
 
         post_content = response.choices[0].message.content or ""
