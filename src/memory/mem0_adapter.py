@@ -159,7 +159,97 @@ class AgentMemory:
             config["history_db_path"] = database_url
 
         self.memory = Memory.from_config(config)
+        self.dedup_threshold = 0.85  # 相似度閾值，超過視為重複
         logger.info("memory_initialized", agent_id=agent_id)
+
+    def _has_post_id(self, post_id: str, search_limit: int = 100) -> bool:
+        """Check if a post_id already exists in memory (exact match).
+
+        Used for observe() dedup to avoid semantic confusion with summaries.
+
+        Args:
+            post_id: The post ID to check
+            search_limit: Max memories to scan
+
+        Returns:
+            True if post_id already recorded
+        """
+        if not post_id:
+            return False
+
+        try:
+            # Check both agent and user scopes
+            agent_memories = self.memory.get_all(agent_id=self.agent_id)
+            user_memories = self.memory.get_all(user_id=self.agent_id)
+
+            all_items = (
+                agent_memories.get("results", [])[:search_limit] +
+                user_memories.get("results", [])[:search_limit]
+            )
+
+            for item in all_items:
+                if item.get("metadata", {}).get("post_id") == post_id:
+                    return True
+
+            return False
+
+        except Exception as e:
+            logger.warning("post_id_check_failed", post_id=post_id, error=str(e))
+            return False  # On error, allow write (conservative)
+
+    def _is_duplicate_semantic(
+        self,
+        content: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        threshold: Optional[float] = None,
+    ) -> bool:
+        """Check if semantically similar content already exists.
+
+        Used for agent responses and reflections where semantic dedup makes sense.
+
+        Args:
+            content: Content to check for duplicates
+            user_id: Search in user's memory scope
+            agent_id: Search in agent's memory scope
+            threshold: Similarity threshold (default: self.dedup_threshold)
+
+        Returns:
+            True if duplicate found, False otherwise
+        """
+        threshold = threshold or self.dedup_threshold
+
+        # Skip very short content (not worth deduping)
+        if len(content.strip()) < 10:
+            return False
+
+        try:
+            # Search for similar content
+            if user_id:
+                results = self.memory.search(query=content, user_id=user_id, limit=3)
+            elif agent_id:
+                results = self.memory.search(query=content, agent_id=agent_id, limit=3)
+            else:
+                return False
+
+            # Check if any result exceeds threshold
+            for item in results.get("results", []):
+                score = item.get("score", 0)
+                if score >= threshold:
+                    existing_memory = item.get("memory", "")[:50]
+                    logger.debug(
+                        "semantic_duplicate_detected",
+                        score=round(score, 3),
+                        existing=existing_memory,
+                        new_content=content[:50],
+                    )
+                    return True
+
+            return False
+
+        except Exception as e:
+            logger.warning("semantic_dedup_check_failed", error=str(e))
+            return False  # On error, allow write (conservative)
 
     def _format_metadata(
         self,
@@ -185,7 +275,7 @@ class AgentMemory:
         source: str = "threads",
         post_id: Optional[str] = None,
         author: Optional[str] = None,
-    ) -> str:
+    ) -> Optional[str]:
         """Record an observation (e.g., seeing a post).
 
         Args:
@@ -195,8 +285,14 @@ class AgentMemory:
             author: Optional author username
 
         Returns:
-            Memory ID
+            Memory ID, or None if duplicate
         """
+        # Check for duplicates using post_id (exact match, not semantic)
+        # This avoids confusion with participant_summary which shares the same scope
+        if post_id and self._has_post_id(post_id):
+            logger.debug("observation_skipped_duplicate_post_id", post_id=post_id)
+            return None
+
         metadata = self._format_metadata(
             MemoryType.OBSERVATION,
             {
@@ -288,7 +384,7 @@ class AgentMemory:
             participant_id: Identifier for the participant (e.g., "participant_Alex")
 
         Returns:
-            Dict with participant_memory_id and agent_memory_id
+            Dict with participant_memory_id and agent_memory_id (None if skipped due to duplicate)
         """
         # Default to unknown if no participant_id provided
         user_id = participant_id or "participant_unknown"
@@ -299,59 +395,81 @@ class AgentMemory:
             "participant_id": participant_id,
         }
 
-        # 1. Record participant's content (uses USER_MEMORY_EXTRACTION_PROMPT)
-        participant_metadata = self._format_metadata(
-            MemoryType.INTERACTION,
-            {**metadata_base, "about": "participant"},
-        )
-        participant_result = self.memory.add(
-            messages=[{"role": "user", "content": context}],
-            user_id=user_id,
-            metadata=participant_metadata,
-        )
+        participant_memory_id: Optional[str] = None
+        agent_memory_id: Optional[str] = None
+        skipped_count = 0
 
-        # 2. Record agent's response (uses AGENT_MEMORY_EXTRACTION_PROMPT)
-        agent_metadata = self._format_metadata(
-            MemoryType.INTERACTION,
-            {**metadata_base, "about": "xiao_guang"},
-        )
-        agent_result = self.memory.add(
-            messages=[{"role": "assistant", "content": my_response}],
-            agent_id=self.agent_id,
-            metadata=agent_metadata,
-        )
+        # 1. Record participant's content (with semantic dedup)
+        if not self._is_duplicate_semantic(context, user_id=user_id):
+            participant_metadata = self._format_metadata(
+                MemoryType.INTERACTION,
+                {**metadata_base, "about": "participant"},
+            )
+            participant_result = self.memory.add(
+                messages=[{"role": "user", "content": context}],
+                user_id=user_id,
+                metadata=participant_metadata,
+            )
+            participant_memory_id = participant_result.get("id", "unknown")
+        else:
+            skipped_count += 1
+            logger.debug("participant_memory_skipped_duplicate", participant=user_id)
 
-        # 3. Copy participant summary to agent scope (for reflection/stats visibility)
-        # This allows search/get_recent/stats to see conversation context
-        summary_metadata = self._format_metadata(
-            MemoryType.INTERACTION,
-            {**metadata_base, "about": "participant_summary", "source_participant": user_id},
-        )
-        # Truncate context for summary (keep it lightweight)
+        # 2. Record agent's response (with semantic dedup)
+        if not self._is_duplicate_semantic(my_response, agent_id=self.agent_id):
+            agent_metadata = self._format_metadata(
+                MemoryType.INTERACTION,
+                {**metadata_base, "about": "xiao_guang"},
+            )
+            agent_result = self.memory.add(
+                messages=[{"role": "assistant", "content": my_response}],
+                agent_id=self.agent_id,
+                metadata=agent_metadata,
+            )
+            agent_memory_id = agent_result.get("id", "unknown")
+        else:
+            skipped_count += 1
+            logger.debug("agent_memory_skipped_duplicate")
+
+        # 3. Copy participant summary to agent scope (with semantic dedup)
         summary_content = context[:300] + "..." if len(context) > 300 else context
-        self.memory.add(
-            messages=[{"role": "user", "content": f"[{user_id}] {summary_content}"}],
-            user_id=self.agent_id,
-            metadata=summary_metadata,
-        )
+        summary_text = f"[{user_id}] {summary_content}"
+        if not self._is_duplicate_semantic(summary_text, user_id=self.agent_id):
+            summary_metadata = self._format_metadata(
+                MemoryType.INTERACTION,
+                {**metadata_base, "about": "participant_summary", "source_participant": user_id},
+            )
+            self.memory.add(
+                messages=[{"role": "user", "content": summary_text}],
+                user_id=self.agent_id,
+                metadata=summary_metadata,
+            )
+        else:
+            skipped_count += 1
 
-        participant_memory_id = participant_result.get("id", "unknown")
-        agent_memory_id = agent_result.get("id", "unknown")
-
-        logger.info(
-            "interaction_recorded",
-            participant_memory_id=participant_memory_id,
-            agent_memory_id=agent_memory_id,
-            interaction_type=interaction_type,
-            participant_id=participant_id,
-        )
+        # Adjust log level based on whether anything was written
+        if participant_memory_id or agent_memory_id:
+            logger.info(
+                "interaction_recorded",
+                participant_memory_id=participant_memory_id,
+                agent_memory_id=agent_memory_id,
+                interaction_type=interaction_type,
+                participant_id=participant_id,
+                skipped_duplicates=skipped_count,
+            )
+        else:
+            logger.debug(
+                "interaction_all_duplicates_skipped",
+                interaction_type=interaction_type,
+                participant_id=participant_id,
+            )
 
         return {
             "participant_memory_id": participant_memory_id,
             "agent_memory_id": agent_memory_id,
         }
 
-    def add_reflection(self, insights: str, based_on: Optional[list[str]] = None) -> str:
+    def add_reflection(self, insights: str, based_on: Optional[list[str]] = None) -> Optional[str]:
         """Store a reflection (high-level insight).
 
         Args:
@@ -359,15 +477,22 @@ class AgentMemory:
             based_on: List of memory IDs this reflection is based on
 
         Returns:
-            Memory ID
+            Memory ID, or None if duplicate
         """
+        reflection_content = f"Reflection: {insights}"
+
+        # Check for duplicate reflections (semantic)
+        if self._is_duplicate_semantic(reflection_content, user_id=self.agent_id):
+            logger.debug("reflection_skipped_duplicate", content=insights[:50])
+            return None
+
         metadata = self._format_metadata(
             MemoryType.REFLECTIVE,
             {"based_on_memories": based_on or []},
         )
 
         result = self.memory.add(
-            messages=[{"role": "assistant", "content": f"Reflection: {insights}"}],
+            messages=[{"role": "assistant", "content": reflection_content}],
             user_id=self.agent_id,
             metadata=metadata,
         )
