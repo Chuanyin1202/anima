@@ -22,6 +22,7 @@ from ..memory import AgentMemory, ReflectionEngine
 from ..observation import SimulationLogger
 from ..threads import Post, ThreadsClient
 from .persona import Persona, PersonaEngine
+from ..utils.ideas import format_ideas_for_context, get_recent_ideas
 
 logger = structlog.get_logger()
 
@@ -230,8 +231,11 @@ class AgentBrain:
                     self.simulation_logger.log_observation(post)
 
                 # Try to interact
-                result = await self._interact_with_post(post)
+                result, score, refinements = await self._interact_with_post(post)
                 results.append(result)
+                if score is not None:
+                    adherence_scores.append(score)
+                refine_count += refinements
 
                 if result.success:
                     interaction_count += 1
@@ -313,9 +317,14 @@ class AgentBrain:
 
         return unique_posts[:20]  # Max 20 posts to consider
 
-    async def _interact_with_post(self, post: Post) -> InteractionResult:
-        """Generate and post a response to a specific post."""
+    async def _interact_with_post(self, post: Post) -> tuple[InteractionResult, Optional[float], int]:
+        """Generate and post a response to a specific post.
+
+        Returns:
+            InteractionResult, adherence_score (or None if not computed), refinement_attempts
+        """
         refinement_attempts = 0
+        adherence_score: Optional[float] = None
 
         try:
             # Get relevant memories for context
@@ -325,6 +334,11 @@ class AgentBrain:
                 max_memories=5,
                 participant_id=participant_id,
             )
+            idea_context = format_ideas_for_context(
+                get_recent_ideas(max_items=3, max_age_days=7, statuses=("pending", "posted"))
+            )
+            if idea_context:
+                memory_context = f"{memory_context}\n\n{idea_context}".strip()
 
             # Parse memory context for logging
             memory_lines = [
@@ -342,7 +356,7 @@ class AgentBrain:
 
             # Verify persona adherence
             passes, score = await self.persona_engine.verify_persona_adherence(response)
-            adherence_scores.append(score)
+            adherence_score = score
             print(f"   Adherence: {score:.0%} ({'PASS' if passes else 'REFINE'})", flush=True)
 
             if not passes:
@@ -350,20 +364,23 @@ class AgentBrain:
                 print(f"   Refining response...", flush=True)
                 response = await self.persona_engine.refine_response(response)
                 refinement_attempts += 1
-                refine_count += 1
                 passes, score = await self.persona_engine.verify_persona_adherence(
                     response
                 )
-                adherence_scores.append(score)
+                adherence_score = score
                 print(f"   Refined: {response}", flush=True)
                 print(f"   New adherence: {score:.0%}", flush=True)
 
                 if not passes:
                     print(f"   [WARN] Still not matching persona, skipping", flush=True)
-                    return InteractionResult(
-                        success=False,
-                        post_id=post.id,
-                        reason="persona_adherence_failed",
+                    return (
+                        InteractionResult(
+                            success=False,
+                            post_id=post.id,
+                            reason="persona_adherence_failed",
+                        ),
+                        adherence_score,
+                        refinement_attempts,
                     )
 
             # === OBSERVATION MODE: Log but don't post ===
@@ -395,11 +412,15 @@ class AgentBrain:
                     response_preview=response[:50] + "..." if len(response) > 50 else response,
                 )
 
-                return InteractionResult(
-                    success=True,
-                    post_id=post.id,
-                    response=response,
-                    reason="simulated",
+                return (
+                    InteractionResult(
+                        success=True,
+                        post_id=post.id,
+                        response=response,
+                        reason="simulated",
+                    ),
+                    adherence_score,
+                    refinement_attempts,
                 )
 
             # === NORMAL MODE: Actually post ===
@@ -435,14 +456,18 @@ class AgentBrain:
                 post_id=post.id,
                 response=response,
                 reason="success",
-            )
+            ), adherence_score, refinement_attempts
 
         except Exception as e:
             logger.error("interaction_failed", post_id=post.id, error=str(e))
-            return InteractionResult(
-                success=False,
-                post_id=post.id,
-                reason=str(e),
+            return (
+                InteractionResult(
+                    success=False,
+                    post_id=post.id,
+                    reason=str(e),
+                ),
+                adherence_score,
+                refinement_attempts,
             )
 
     async def create_original_post(self, topic: Optional[str] = None) -> Optional[str]:
@@ -470,8 +495,13 @@ class AgentBrain:
                 logger.warning("no_interests_configured")
                 return None
 
-        # Get relevant memories
+        # Get relevant memories + idea pool
         memory_context = self.memory.get_context_for_response(topic, max_memories=3)
+        idea_context = format_ideas_for_context(
+            get_recent_ideas(max_items=3, max_age_days=7, statuses=("pending", "posted"))
+        )
+        if idea_context:
+            memory_context = f"{memory_context}\n\n{idea_context}".strip()
 
         # Generate the post
         prompt = f"""As {self.persona.identity.name}, write a short Threads post about: {topic}

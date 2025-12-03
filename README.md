@@ -199,6 +199,21 @@ USE_MOCK_THREADS=true anima cycle
 - 互動會拆成兩筆：`participant_*`（對話者內容，user scope）與 `agent_id`（小光回覆，agent scope），並複寫一份摘要到 agent scope，確保反思/統計可見對話者資訊。
 - `search/get_recent/stats` 會合併 agent/user 記憶；MCP 身份由「我是/我叫」或 `anima_set_user` 決定。
 
+## 主動分享素材池（快速堆料）
+
+- 內建輕量抓取腳本：`python -m src.utils.harvest_ideas --limit 8`
+  - 預設來源：OpenAI Blog、Hugging Face Blog、Papers with Code、Hacker News AI（官方/RSS，無 Anthropic 官方 RSS）
+  - 會用 OpenAI 將素材轉成口語化中文短稿，輸出 Markdown + `data/ideas/index.jsonl`（含 pending/posted/expired 狀態與 Threads 貼文 ID）
+  - 需要設定 `OPENAI_API_KEY`，可在 Zeabur 的 `/app/data` volume 中持久化輸出
+  - 可自訂 feed：`--feeds https://example.com/rss ...`
+
+## 排程（已內建）
+- 互動循環：預設每 4 小時
+- 素材抓取：每 4 小時
+- 主動發文：每日 10:00 從 pending ideas 自動發一則（發佈前會做重複檢查，發後標記 posted）
+- 素材過期：每日 03:00 將超過 7 天的 pending 標記 expired
+- 反思：每日 23:00
+
 ## 授權
 
 MIT License

@@ -53,8 +53,8 @@ htmlcov/
 qdrant_data/
 neo4j_data/
 
-# Simulation data (observation mode)
-data/simulations/
+# Runtime data
+data/
 
 # OS
 .DS_Store

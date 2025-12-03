@@ -8,7 +8,7 @@ Handles:
 
 import asyncio
 import random
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timezone, timedelta
 from typing import Callable, Optional
 
 import structlog
@@ -17,6 +17,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .brain import AgentBrain
+from ..utils.ideas import expire_old_ideas
 
 logger = structlog.get_logger()
 
@@ -38,11 +39,15 @@ class AgentScheduler:
         interaction_interval_hours: float = 4,
         reflection_time: time = time(hour=23, minute=0),  # 11 PM
         random_delay_minutes: int = 30,
+        harvest_interval_hours: float = 4,
+        daily_idea_post_hour: int = 10,
     ):
         self.brain = brain
         self.interaction_interval_hours = interaction_interval_hours
         self.reflection_time = reflection_time
         self.random_delay_minutes = random_delay_minutes
+        self.harvest_interval_hours = harvest_interval_hours
+        self.daily_idea_post_hour = daily_idea_post_hour
 
         self._scheduler = AsyncIOScheduler()
         self._running = False
@@ -63,6 +68,25 @@ class AgentScheduler:
             next_run_time=datetime.now(),  # Run immediately on start
         )
 
+        # Add idea harvesting job (periodic, e.g., every 4 hours)
+        self._scheduler.add_job(
+            self._harvest_ideas,
+            IntervalTrigger(hours=self.harvest_interval_hours),
+            id="harvest_ideas",
+            name="Harvest Ideas",
+            replace_existing=True,
+            next_run_time=datetime.now() + timedelta(minutes=5),
+        )
+
+        # Add daily idea post job (once per day)
+        self._scheduler.add_job(
+            self._post_from_ideas,
+            CronTrigger(hour=self.daily_idea_post_hour, minute=0),
+            id="idea_post",
+            name="Idea Post",
+            replace_existing=True,
+        )
+
         # Add daily reflection job
         self._scheduler.add_job(
             self._run_daily_reflection,
@@ -72,6 +96,15 @@ class AgentScheduler:
             ),
             id="daily_reflection",
             name="Daily Reflection",
+            replace_existing=True,
+        )
+
+        # Add daily idea expiry job
+        self._scheduler.add_job(
+            self._expire_old_ideas,
+            CronTrigger(hour=3, minute=0),
+            id="expire_ideas",
+            name="Expire Old Ideas",
             replace_existing=True,
         )
 
@@ -140,6 +173,56 @@ class AgentScheduler:
                 logger.info("daily_reflection_complete", length=len(reflection))
         except Exception as e:
             logger.error("daily_reflection_error", error=str(e))
+
+    async def _harvest_ideas(self) -> None:
+        """Internal: Run idea harvesting script to update idea pool."""
+        try:
+            from ..utils.harvest_ideas import main as harvest_main
+            await harvest_main()
+            logger.info("ideas_harvested")
+        except Exception as e:
+            logger.error("idea_harvest_failed", error=str(e))
+
+    async def _post_from_ideas(self) -> None:
+        """Internal: Auto-post one idea if pending exists."""
+        try:
+            from ..utils.ideas import get_recent_ideas, mark_posted
+
+            ideas = get_recent_ideas(statuses=("pending",), max_items=10, max_age_days=7)
+            if not ideas:
+                logger.info("no_pending_ideas")
+                return
+
+            posted = False
+            for idea in ideas:
+                # Duplicate check: search memory for link/title
+                search_query = idea.link or idea.title
+                if search_query:
+                    existing = self.brain.memory.search(search_query, limit=3)
+                    # Do a simple substring check on returned contents to reduce false positives
+                    if any(search_query in (mem.content or "") for mem in existing):
+                        logger.info("idea_skipped_duplicate", idea_id=idea.id, query=search_query)
+                        continue
+
+                post_id = await self.brain.create_original_post(topic=idea.summary)
+                if post_id:
+                    mark_posted(idea_id=idea.id, post_id=post_id)
+                    logger.info("idea_posted", idea_id=idea.id, post_id=post_id)
+                    posted = True
+                    break
+
+            if not posted:
+                logger.info("no_non_duplicate_idea_to_post")
+        except Exception as e:
+            logger.error("idea_post_failed", error=str(e))
+
+    async def _expire_old_ideas(self) -> None:
+        """Mark old pending ideas as expired."""
+        try:
+            expire_old_ideas()
+            logger.info("ideas_expired_checked")
+        except Exception as e:
+            logger.error("expire_ideas_failed", error=str(e))
 
 
 async def run_cli_mode(
