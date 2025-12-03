@@ -9,8 +9,10 @@ This is the central orchestrator that:
 """
 
 import asyncio
+import json
 import random
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 
 import structlog
@@ -145,6 +147,10 @@ class AgentBrain:
             self._today_date = today
 
         results = []
+        skipped_count = 0
+        adherence_scores: list[float] = []
+        refine_count = 0
+        skip_by_reason: dict[str, int] = {}
 
         try:
             # Step 1: Maybe do reflection
@@ -176,24 +182,13 @@ class AgentBrain:
                 print(f"   Author: @{post.username}", flush=True)
                 print(f"   Content: {post_text}{'...' if len(post.text or '') > 150 else ''}", flush=True)
 
-                # Check if should skip
+                # Check if should skip (self-post or already interacted)
                 skip_reason = self._get_skip_reason(post)
                 if skip_reason:
                     print(f"   -> Skip: {skip_reason}", flush=True)
                     continue
 
-                # Record observation (to memory)
-                self.memory.observe(
-                    content=post.text or "",
-                    post_id=post.id,
-                    author=post.username,
-                )
-
-                # Log observation (for simulation)
-                if self.observation_mode and self.simulation_logger:
-                    self.simulation_logger.log_observation(post)
-
-                # Decide if we should engage
+                # Decide if we should engage (includes content filtering)
                 should_engage, reason = await self.persona_engine.should_engage(
                     post.text or ""
                 )
@@ -212,8 +207,27 @@ class AgentBrain:
                     )
 
                 if not should_engage:
+                    # Record skip summary for audit (not for context retrieval)
+                    self.memory.record_skipped(
+                        content=(post.text or "")[:100],
+                        post_id=post.id,
+                        skip_reason=reason,
+                    )
+                    skipped_count += 1
+                    skip_by_reason[reason] = skip_by_reason.get(reason, 0) + 1
                     logger.debug("skipping_post", post_id=post.id, reason=reason)
                     continue
+
+                # Record observation only for posts we engage with
+                self.memory.observe(
+                    content=post.text or "",
+                    post_id=post.id,
+                    author=post.username,
+                )
+
+                # Log observation (for simulation)
+                if self.observation_mode and self.simulation_logger:
+                    self.simulation_logger.log_observation(post)
 
                 # Try to interact
                 result = await self._interact_with_post(post)
@@ -235,6 +249,14 @@ class AgentBrain:
                 interactions=successful,
                 total_attempts=len(results),
             )
+            self._record_cycle_metrics(
+                successful=successful,
+                attempts=len(results),
+                skipped=skipped_count,
+                adherence_scores=adherence_scores,
+                refine_count=refine_count,
+                skip_by_reason=skip_by_reason,
+            )
             print(f"\n{'='*60}", flush=True)
             print(f"Cycle complete: {successful}/{len(results)} successful interactions", flush=True)
             print(f"{'='*60}\n", flush=True)
@@ -246,19 +268,37 @@ class AgentBrain:
         return results
 
     async def _fetch_interesting_posts(self) -> list[Post]:
-        """Fetch posts that might be interesting to the agent."""
+        """Fetch posts to potentially interact with.
+
+        Uses reply mode (replies to my posts) as primary source.
+        Falls back to keyword search if available and no replies found.
+        """
         posts = []
 
-        # Search for posts related to interests
-        for interest in self.persona.interests.primary[:3]:  # Top 3 interests
-            try:
-                search_result = await self.threads.search_posts(
-                    query=interest,
-                    limit=10,
-                )
-                posts.extend(search_result.posts)
-            except Exception as e:
-                logger.warning("search_failed", interest=interest, error=str(e))
+        # Primary: Get replies to my posts (no special permission needed)
+        try:
+            replies = await self.threads.get_replies_to_my_posts(
+                max_posts=10,
+                max_replies_per_post=5,
+            )
+            posts.extend(replies)
+            logger.info("replies_mode", count=len(replies))
+        except Exception as e:
+            logger.warning("fetch_replies_failed", error=str(e))
+
+        # Fallback: Search for posts (requires threads_keyword_search permission)
+        if not posts:
+            logger.info("fallback_to_search")
+            for interest in self.persona.interests.primary[:3]:
+                try:
+                    search_result = await self.threads.search_posts(
+                        query=interest,
+                        limit=10,
+                    )
+                    posts.extend(search_result.posts)
+                except Exception as e:
+                    # Expected to fail without permission, just log debug
+                    logger.debug("search_fallback_failed", interest=interest)
 
         # Deduplicate by post ID
         seen_ids = set()
@@ -302,6 +342,7 @@ class AgentBrain:
 
             # Verify persona adherence
             passes, score = await self.persona_engine.verify_persona_adherence(response)
+            adherence_scores.append(score)
             print(f"   Adherence: {score:.0%} ({'PASS' if passes else 'REFINE'})", flush=True)
 
             if not passes:
@@ -309,9 +350,11 @@ class AgentBrain:
                 print(f"   Refining response...", flush=True)
                 response = await self.persona_engine.refine_response(response)
                 refinement_attempts += 1
+                refine_count += 1
                 passes, score = await self.persona_engine.verify_persona_adherence(
                     response
                 )
+                adherence_scores.append(score)
                 print(f"   Refined: {response}", flush=True)
                 print(f"   New adherence: {score:.0%}", flush=True)
 
@@ -518,3 +561,41 @@ Guidelines:
             self._self_username = profile.username
         except Exception:
             logger.debug("self_profile_fetch_failed", exc_info=True)
+
+    def _record_cycle_metrics(
+        self,
+        successful: int,
+        attempts: int,
+        skipped: int,
+        adherence_scores: list[float],
+        refine_count: int,
+        skip_by_reason: dict[str, int],
+    ) -> None:
+        """Persist simple cycle metrics to file for later analysis."""
+        metrics_dir = Path("data/metrics")
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        metrics_file = metrics_dir / "cycle_metrics.jsonl"
+
+        # Aggregate adherence stats
+        avg_adherence = sum(adherence_scores) / len(adherence_scores) if adherence_scores else 0.0
+
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent": self.persona.identity.name,
+            "mode": "observe" if self.observation_mode else "normal",
+            "successful": successful,
+            "attempts": attempts,
+            "skipped": skipped,
+            "skip_by_reason": skip_by_reason,
+            "adherence_avg": avg_adherence,
+            "adherence_count": len(adherence_scores),
+            "refine_count": refine_count,
+            "interactions_today": self._interactions_today,
+            "memory": self.memory.get_stats(),
+        }
+
+        try:
+            with open(metrics_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception:
+            logger.warning("metrics_write_failed", file=str(metrics_file), exc_info=True)

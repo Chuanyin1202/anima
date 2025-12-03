@@ -11,9 +11,13 @@ class MediaType(str, Enum):
     """Threads media types."""
 
     TEXT = "TEXT"
+    TEXT_POST = "TEXT_POST"
     IMAGE = "IMAGE"
     VIDEO = "VIDEO"
     CAROUSEL = "CAROUSEL"
+    CAROUSEL_ALBUM = "CAROUSEL_ALBUM"
+    REPOST_FACADE = "REPOST_FACADE"
+    AUDIO = "AUDIO"
 
 
 class User(BaseModel):
@@ -37,6 +41,10 @@ class Post(BaseModel):
     username: Optional[str] = None
     is_quote_post: bool = False
     shortcode: Optional[str] = None
+
+    # Search-specific fields
+    has_replies: Optional[bool] = None
+    is_reply: Optional[bool] = None
 
     # Engagement metrics (optional, from insights)
     likes: Optional[int] = None

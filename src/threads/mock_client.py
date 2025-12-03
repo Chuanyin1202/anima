@@ -229,9 +229,10 @@ class MockThreadsClient:
         self,
         limit: int = 25,
         since: Optional[datetime] = None,
-    ) -> list[Post]:
-        """Return mock user posts."""
-        return [
+        cursor: Optional[str] = None,
+    ) -> tuple[list[Post], Optional[str]]:
+        """Return mock user posts (matching real client signature)."""
+        posts = [
             Post(
                 id=f"mock_post_{uuid4().hex[:8]}",
                 media_type=MediaType.TEXT,
@@ -240,6 +241,7 @@ class MockThreadsClient:
                 username="mock_persona",
             )
         ]
+        return posts, None  # (posts, next_cursor)
 
     async def get_post(self, post_id: str) -> Post:
         """Get a specific mock post."""
@@ -253,8 +255,56 @@ class MockThreadsClient:
         )
 
     async def get_post_replies(self, post_id: str, limit: int = 25) -> list:
-        """Return empty replies list."""
-        return []
+        """Return mock replies."""
+        from .models import Reply
+
+        # Generate some mock replies
+        mock_replies_data = [
+            {"text": "這個觀點很有趣！能分享更多嗎？", "username": "curious_user"},
+            {"text": "完全同意，我也有類似的經驗", "username": "fellow_dev"},
+            {"text": "請問這個工具要怎麼開始使用？", "username": "newbie_coder"},
+        ]
+
+        replies = []
+        for i, data in enumerate(mock_replies_data[:limit]):
+            reply = Reply(
+                id=f"mock_reply_{post_id[:8]}_{i}",
+                text=data["text"],
+                timestamp=datetime.now(timezone.utc) - timedelta(hours=i + 1),
+                username=data["username"],
+                replied_to_id=post_id,
+            )
+            replies.append(reply)
+
+        return replies
+
+    async def get_replies_to_my_posts(
+        self,
+        max_posts: int = 10,
+        max_replies_per_post: int = 10,
+    ) -> list[Post]:
+        """Get mock replies to my posts."""
+        all_replies: list[Post] = []
+
+        # Get my mock posts
+        my_posts, _ = await self.get_user_posts(limit=max_posts)
+
+        for post in my_posts:
+            replies = await self.get_post_replies(post.id, limit=max_replies_per_post)
+
+            # Convert Reply to Post format
+            for reply in replies:
+                reply_as_post = Post(
+                    id=reply.id,
+                    media_type=MediaType.TEXT,
+                    text=reply.text,
+                    timestamp=reply.timestamp,
+                    username=reply.username,
+                )
+                all_replies.append(reply_as_post)
+
+        logger.info("mock_replies_fetched", total=len(all_replies))
+        return all_replies
 
     # =========================================================================
     # Publishing (Mock - just log)
@@ -296,10 +346,16 @@ class MockThreadsClient:
         self,
         query: str,
         limit: int = 25,
+        search_type: str = "TOP",
+        search_mode: str = "KEYWORD",
+        media_type: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
     ) -> SearchResult:
         """Return mock posts related to the query.
 
         會根據 query 返回相關的模擬貼文。
+        Mock 實現忽略 search_type, search_mode, media_type, since, until 參數。
         """
         # 建立所有可用的貼文
         all_posts = list(MOCK_POSTS_DATA)

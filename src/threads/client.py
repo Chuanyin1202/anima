@@ -6,7 +6,7 @@ https://developers.facebook.com/docs/threads
 Rate Limits:
 - 250 posts per 24 hours
 - 1,000 replies per 24 hours
-- 500 search queries per 7 days
+- 2,200 search queries per 24 hours (requires threads_keyword_search permission)
 """
 
 import asyncio
@@ -164,14 +164,21 @@ class ThreadsClient:
         self,
         limit: int = 25,
         since: Optional[datetime] = None,
-    ) -> list[Post]:
-        """Get user's own posts."""
+        cursor: Optional[str] = None,
+    ) -> tuple[list[Post], Optional[str]]:
+        """Get user's own posts with pagination support.
+
+        Returns:
+            Tuple of (posts, next_cursor). next_cursor is None if no more pages.
+        """
         params = {
             "fields": "id,media_type,text,timestamp,permalink,username,is_quote_post,shortcode",
             "limit": limit,
         }
         if since:
             params["since"] = since.isoformat()
+        if cursor:
+            params["after"] = cursor
 
         data = await self._request("GET", f"{self.user_id}/threads", params=params)
 
@@ -182,7 +189,49 @@ class ThreadsClient:
             )
             posts.append(Post(**item))
 
-        return posts
+        # Get next cursor for pagination
+        next_cursor = data.get("paging", {}).get("cursors", {}).get("after")
+
+        return posts, next_cursor
+
+    async def get_all_user_posts(
+        self,
+        since: Optional[datetime] = None,
+        max_posts: int = 500,
+    ) -> list[Post]:
+        """Get all user's posts by paginating through results.
+
+        Args:
+            since: Only get posts after this datetime
+            max_posts: Maximum number of posts to retrieve (safety limit)
+
+        Returns:
+            List of all posts
+        """
+        all_posts = []
+        cursor = None
+
+        while len(all_posts) < max_posts:
+            posts, next_cursor = await self.get_user_posts(
+                limit=25,
+                since=since,
+                cursor=cursor,
+            )
+
+            if not posts:
+                break
+
+            all_posts.extend(posts)
+            logger.info("fetched_posts_page", count=len(posts), total=len(all_posts))
+
+            if not next_cursor:
+                break
+
+            cursor = next_cursor
+            # Small delay to avoid rate limiting
+            await asyncio.sleep(0.5)
+
+        return all_posts
 
     async def get_post(self, post_id: str) -> Post:
         """Get a specific post by ID."""
@@ -218,6 +267,54 @@ class ThreadsClient:
             replies.append(Reply(**item))
 
         return replies
+
+    async def get_replies_to_my_posts(
+        self,
+        max_posts: int = 10,
+        max_replies_per_post: int = 10,
+    ) -> list[Post]:
+        """Get replies to my recent posts (no special permission needed).
+
+        This is an alternative to search_posts() when you don't have
+        the threads_keyword_search permission.
+
+        Args:
+            max_posts: Maximum number of my posts to check for replies.
+            max_replies_per_post: Maximum replies to fetch per post.
+
+        Returns:
+            List of Post objects representing replies to my posts.
+        """
+        all_replies: list[Post] = []
+
+        # Get my recent posts
+        my_posts, _ = await self.get_user_posts(limit=max_posts)
+
+        for post in my_posts:
+            try:
+                replies = await self.get_post_replies(post.id, limit=max_replies_per_post)
+
+                # Convert Reply to Post format for compatibility
+                for reply in replies:
+                    reply_as_post = Post(
+                        id=reply.id,
+                        media_type=MediaType.TEXT,
+                        text=reply.text,
+                        timestamp=reply.timestamp,
+                        username=reply.username,
+                        is_reply=True,
+                    )
+                    all_replies.append(reply_as_post)
+
+                # Small delay to avoid rate limiting
+                await asyncio.sleep(0.2)
+
+            except Exception as e:
+                logger.warning("fetch_replies_failed", post_id=post.id, error=str(e))
+                continue
+
+        logger.info("replies_fetched", total=len(all_replies), posts_checked=len(my_posts))
+        return all_replies
 
     # =========================================================================
     # Publishing
@@ -284,21 +381,56 @@ class ThreadsClient:
         self,
         query: str,
         limit: int = 25,
+        search_type: str = "TOP",
+        search_mode: str = "KEYWORD",
+        media_type: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
     ) -> SearchResult:
-        """Search for public posts by keyword/topic.
+        """Search for public posts by keyword or hashtag.
 
-        Note: This endpoint may require additional permissions and is subject to
-        500 queries per 7 days rate limit.
+        ⚠️ REQUIRES SPECIAL PERMISSION: threads_keyword_search
+        This permission requires Meta app review approval.
+        If you don't have this permission, use get_replies_to_my_posts() instead.
+
+        Official endpoint: GET /keyword_search
+        Docs: https://developers.facebook.com/docs/threads/keyword-search
+
+        Args:
+            query: The keyword or hashtag to search for.
+            limit: Max results to return (1-100, default 25).
+            search_type: "TOP" (default) for popular results, "RECENT" for newest.
+            search_mode: "KEYWORD" (default) for keyword search, "TAG" for hashtag.
+            media_type: Filter by media type - "TEXT", "IMAGE", or "VIDEO".
+            since: Unix timestamp for start date (must be >= 1688540400).
+            until: Unix timestamp for end date (must be <= now).
+
+        Returns:
+            SearchResult with matching posts.
+
+        Requires:
+            - threads_basic permission
+            - threads_keyword_search permission (NEEDS APP REVIEW)
+
+        Rate limit: 2,200 queries per 24 hours.
+        Note: Queries returning no results don't count against the limit.
         """
-        data = await self._request(
-            "GET",
-            "search",
-            params={
-                "q": query,
-                "type": "threads",
-                "limit": limit,
-            },
-        )
+        params = {
+            "q": query,
+            "search_type": search_type,
+            "search_mode": search_mode,
+            "limit": min(limit, 100),
+            "fields": "id,text,media_type,permalink,timestamp,username,has_replies,is_quote_post,is_reply",
+        }
+
+        if media_type:
+            params["media_type"] = media_type
+        if since is not None:
+            params["since"] = since
+        if until is not None:
+            params["until"] = until
+
+        data = await self._request("GET", "keyword_search", params=params)
 
         posts = []
         for item in data.get("data", []):

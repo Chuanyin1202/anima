@@ -216,6 +216,56 @@ class AgentMemory:
         logger.debug("observation_recorded", memory_id=memory_id, source=source)
         return memory_id
 
+    def record_skipped(
+        self,
+        content: str,
+        post_id: str,
+        skip_reason: str,
+    ) -> Optional[str]:
+        """Record a skipped post summary (for audit, not for context retrieval).
+
+        Only recorded to agent scope, not participant memory.
+        Marked with skipped=True in metadata to exclude from search().
+
+        Args:
+            content: First 100 chars of the post content
+            post_id: The post ID that was skipped
+            skip_reason: Reason for skipping (from should_engage)
+
+        Returns:
+            Memory ID if successful, None otherwise
+        """
+        metadata = self._format_metadata(
+            MemoryType.OBSERVATION,
+            {
+                "source": "threads_skipped",
+                "post_id": post_id,
+                "skip_reason": skip_reason,
+                "skipped": True,  # Flag to exclude from search
+            },
+        )
+
+        # Format content with skip reason prefix
+        summary = f"[skipped: {skip_reason[:50]}] {content}"
+
+        try:
+            result = self.memory.add(
+                messages=[{"role": "user", "content": summary}],
+                agent_id=self.agent_id,
+                metadata=metadata,
+            )
+            memory_id = result.get("id", "unknown")
+            logger.debug(
+                "skipped_recorded",
+                memory_id=memory_id,
+                post_id=post_id,
+                skip_reason=skip_reason[:30],
+            )
+            return memory_id
+        except Exception as e:
+            logger.warning("record_skipped_failed", post_id=post_id, error=str(e))
+            return None
+
     def record_interaction(
         self,
         my_response: str,
@@ -331,12 +381,28 @@ class AgentMemory:
     # =========================================================================
 
     def _parse_memory_item(
-        self, item: dict, memory_type_filter: Optional[MemoryType] = None
+        self,
+        item: dict,
+        memory_type_filter: Optional[MemoryType] = None,
+        include_skipped: bool = False,
     ) -> Optional[MemoryEntry]:
-        """Parse a memory item from mem0 response into MemoryEntry."""
+        """Parse a memory item from mem0 response into MemoryEntry.
+
+        Args:
+            item: Raw memory item from mem0
+            memory_type_filter: Filter by memory type (optional)
+            include_skipped: Whether to include skipped memories (default: False)
+
+        Returns:
+            MemoryEntry if valid, None if filtered out
+        """
         memory_data = item.get("memory", "")
         metadata = item.get("metadata", {})
         entry_type = MemoryType(metadata.get("memory_type", "observation"))
+
+        # Exclude skipped memories from normal retrieval
+        if not include_skipped and metadata.get("skipped"):
+            return None
 
         if memory_type_filter and entry_type != memory_type_filter:
             return None
@@ -525,8 +591,14 @@ class AgentMemory:
                 seen_ids.add(item_id)
                 unique_items.append(item)
 
+        # Count skipped records
+        skipped_count = sum(
+            1 for item in unique_items if item.get("metadata", {}).get("skipped", False)
+        )
+
         stats = {
             "total_memories": len(unique_items),
+            "skipped_records": skipped_count,
             "by_type": {},
         }
 
@@ -535,6 +607,25 @@ class AgentMemory:
             stats["by_type"][mem_type] = stats["by_type"].get(mem_type, 0) + 1
 
         return stats
+
+    def get_skipped_records(self, limit: int = 50) -> list[dict]:
+        """Get skipped post records for audit purposes."""
+        all_memories = self.memory.get_all(agent_id=self.agent_id)
+
+        skipped = []
+        for item in all_memories.get("results", []):
+            metadata = item.get("metadata", {})
+            if metadata.get("skipped"):
+                skipped.append(
+                    {
+                        "post_id": metadata.get("post_id"),
+                        "skip_reason": metadata.get("skip_reason"),
+                        "content": (item.get("memory", "") or "")[:100],
+                        "timestamp": metadata.get("timestamp"),
+                    }
+                )
+
+        return skipped[:limit]
 
     def has_interacted(self, post_id: str, search_limit: int = 200) -> bool:
         """Check whether the agent has already interacted with a given post."""

@@ -49,13 +49,14 @@ logger = structlog.get_logger()
 
 
 async def create_agent_brain(
-    settings=None, observation_mode: bool = False
+    settings=None, observation_mode: bool = False, use_mock: bool = False
 ) -> AgentBrain:
     """Create and configure the agent brain.
 
     Args:
         settings: Application settings (uses get_settings() if None).
         observation_mode: Whether to run in observation mode.
+        use_mock: Whether to use mock mode (overrides settings.use_mock_threads).
 
     Returns:
         Configured AgentBrain instance.
@@ -78,8 +79,15 @@ async def create_agent_brain(
     openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
 
     # Initialize memory
+    # Use separate collection for mock mode to avoid polluting real memories
+    is_mock_mode = use_mock or settings.use_mock_threads
+    memory_agent_id = settings.agent_name
+    if is_mock_mode:
+        memory_agent_id = f"{settings.agent_name}_test"
+        logger.info("using_test_memory_collection", collection=f"anima_{memory_agent_id}")
+
     memory = AgentMemory(
-        agent_id=settings.agent_name,
+        agent_id=memory_agent_id,
         openai_api_key=settings.openai_api_key,
         qdrant_url=settings.qdrant_url,
         qdrant_api_key=settings.qdrant_api_key,
@@ -154,7 +162,7 @@ async def run_observe_mode(args: argparse.Namespace) -> int:
 
     logger.info("starting_observation_mode", cycles=cycles, mock=use_mock)
 
-    brain = await create_agent_brain(settings, observation_mode=True)
+    brain = await create_agent_brain(settings, observation_mode=True, use_mock=use_mock)
 
     try:
         # Choose client based on mock flag

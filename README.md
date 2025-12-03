@@ -75,6 +75,9 @@ anima stats
 anima daemon
 
 # 觀察模式（模擬但不發文）
+anima observe --cycles 3
+
+# 觀察模式 + Mock（測試開發用，不需要真實 API）
 anima observe --mock --cycles 3
 
 # 標註與分析
@@ -113,6 +116,60 @@ anima analyze            # 產生分析報告
 | `anima_reflect` | 讓 Anima 進行反思 |
 | `anima_get_persona` | 取得人格資訊 |
 | `anima_memory_stats` | 取得記憶統計 |
+
+## Threads API 說明
+
+### 權限需求
+
+| 權限 | 用途 | 需要審核 |
+|-----|------|---------|
+| `threads_basic` | 基本讀取/發文 | 否 |
+| `threads_keyword_search` | 搜尋公開貼文 | **是（需 Meta 審核）** |
+
+### 互動模式
+
+Anima 支援兩種互動模式：
+
+1. **回覆模式（Reply Mode）** - 預設
+   - 使用 `get_replies_to_my_posts()` 獲取自己貼文的回覆
+   - 不需要特殊權限
+   - 適合大多數使用場景
+
+2. **搜尋模式（Search Mode）** - 備用
+   - 使用 `search_posts()` 搜尋公開貼文
+   - **需要 `threads_keyword_search` 權限**（通常需要 1-2 週審核）
+   - 當回覆模式沒有內容時自動嘗試
+
+### 速率限制
+
+- 發佈貼文：250 篇/24 小時
+- 回覆貼文：1,000 條/24 小時
+- 搜尋查詢：2,200 次/24 小時（需要特殊權限）
+
+## Mock 模式（測試開發用）
+
+Mock 模式允許在**沒有真實 API Token** 的情況下測試整個系統：
+
+```bash
+# 觀察模式 + Mock
+anima observe --mock --cycles 3
+
+# 或通過環境變數啟用
+USE_MOCK_THREADS=true anima cycle
+```
+
+**功能包含**：
+- 預設模擬貼文資料庫（各種話題）
+- 完整決策引擎測試
+- 回應生成與 Persona 一致性驗證
+- 記憶系統測試
+
+**⚠️ 重要**：Mock 模式使用獨立的測試記憶庫（`anima_{agent}_test`），不會污染正式記憶。
+
+**適用場景**：
+- 本地開發和調試
+- CI/CD 自動化測試
+- 沒有 API 權限時的快速原型
 
 ## 自訂人格
 
