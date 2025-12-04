@@ -260,11 +260,17 @@ class PersonaEngine:
         """
         user_prompt = f"""Someone posted: "{context}"
 
+Background context (for reference only - do NOT change the topic):
 {memory_context}
 
 Write a reply as {self.persona.identity.name}. Be authentic to your personality.
 Keep it concise (under {self.persona.interaction_rules.max_response_length} characters).
-Don't be generic - let your personality shine through."""
+Don't be generic - let your personality shine through.
+
+IMPORTANT:
+- Always respond directly to what they posted.
+- If it's a simple reaction (e.g., 讚讚讚, 好厲害, emoji only), just acknowledge naturally and keep it short.
+- Do NOT introduce new topics from the background context unless clearly relevant."""
 
         kwargs = {
             "model": self.advanced_model,

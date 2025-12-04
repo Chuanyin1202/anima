@@ -21,7 +21,7 @@ from openai import AsyncOpenAI
 from ..memory import AgentMemory, ReflectionEngine
 from ..observation import SimulationLogger
 from ..threads import Post, ThreadsClient
-from .persona import Persona, PersonaEngine
+from .persona import EMOJI_PATTERN, Persona, PersonaEngine
 from ..utils.config import is_reasoning_model
 from ..utils.ideas import format_ideas_for_context, get_recent_ideas
 
@@ -111,6 +111,26 @@ class AgentBrain:
 
         if observation_mode:
             logger.info("observation_mode_enabled")
+
+    @staticmethod
+    def _is_simple_reaction(text: str) -> bool:
+        """Heuristic check for short/reactive posts (emoji/讚/好厲害等)."""
+        if not text:
+            return False
+        stripped = text.strip()
+        # Very short or only emojis/punctuation
+        if len(stripped) <= 10:
+            return True
+        # Common reaction words
+        reaction_phrases = ["讚", "讚讚", "讚讚讚", "好厲害", "好強", "感謝", "謝謝", "笑死", "哈哈"]
+        if any(phrase in stripped for phrase in reaction_phrases):
+            return True
+        # Emoji-only or almost only emoji
+        if EMOJI_PATTERN.search(stripped):
+            without_emoji = EMOJI_PATTERN.sub("", stripped)
+            if len(without_emoji.strip()) <= 2:
+                return True
+        return False
 
     async def __aenter__(self) -> "AgentBrain":
         await self._ensure_clients_ready()
@@ -340,15 +360,18 @@ class AgentBrain:
         try:
             # Get relevant memories for context
             participant_id = f"participant_{post.username}" if post.username else None
+            is_reaction = self._is_simple_reaction(post.text or "")
+            max_memories = 1 if is_reaction else 5
             memory_context = self.memory.get_context_for_response(
                 post.text or "",
-                max_memories=5,
+                max_memories=max_memories,
+                min_relevance=0.7,
                 participant_id=participant_id,
             )
             idea_context = format_ideas_for_context(
                 get_recent_ideas(max_items=3, max_age_days=7, statuses=("pending", "posted"))
             )
-            if idea_context:
+            if idea_context and not is_reaction:
                 memory_context = f"{memory_context}\n\n{idea_context}".strip()
 
             # Parse memory context for logging
@@ -541,17 +564,27 @@ Guidelines:
 
         post_content = response.choices[0].message.content or ""
 
+        # Add AI signature for original posts
+        ai_signature = "\n\n— Alex 不在，AI 代班"
+
         # Enforce persona limit and Threads 500 char cap (safe hard stop)
-        max_len = min(self.persona.interaction_rules.max_response_length, 500)
+        # Account for signature length
+        max_len = min(self.persona.interaction_rules.max_response_length, 500) - len(ai_signature)
         if len(post_content) > max_len:
             post_content = post_content[: max_len - 3] + "..."
 
-        try:
-            post_id = await self.threads.create_post(post_content)
+        # Keep content without signature for memory storage
+        post_content_for_memory = post_content
 
-            # Record in memory (no participant for original posts)
+        # Add signature for publishing
+        post_content_with_signature = post_content + ai_signature
+
+        try:
+            post_id = await self.threads.create_post(post_content_with_signature)
+
+            # Record in memory WITHOUT signature (no participant for original posts)
             self.memory.record_interaction(
-                my_response=post_content,
+                my_response=post_content_for_memory,
                 context=f"Original post about {topic}",
                 interaction_type="post",
                 post_id=post_id,

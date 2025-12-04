@@ -286,11 +286,14 @@ async def async_main(args: argparse.Namespace) -> int:
 
     settings = get_settings()
 
+    # Check for --mock flag or settings
+    use_mock = getattr(args, "mock", False) or settings.use_mock_threads
+
     try:
-        brain = await create_agent_brain()
+        brain = await create_agent_brain(settings=settings, use_mock=use_mock)
 
         # Choose client based on mock setting
-        if settings.use_mock_threads:
+        if use_mock:
             client_class = MockThreadsClient
         else:
             client_class = ThreadsClient

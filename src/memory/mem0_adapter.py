@@ -399,6 +399,25 @@ class AgentMemory:
         participant_memory_id: Optional[str] = None
         agent_memory_id: Optional[str] = None
         skipped_count = 0
+        errors: list[str] = []
+
+        # Basic validation: skip if no content or no meaningful text
+        if not context and not my_response:
+            logger.warning("interaction_skipped_no_content", post_id=post_id, participant=participant_id)
+            return {
+                "participant_memory_id": None,
+                "agent_memory_id": None,
+                "skipped_duplicates": 0,
+                "errors": ["no_content"],
+            }
+        if not context.strip() and not my_response.strip():
+            logger.warning("interaction_skipped_empty_text", post_id=post_id, participant=participant_id)
+            return {
+                "participant_memory_id": None,
+                "agent_memory_id": None,
+                "skipped_duplicates": 0,
+                "errors": ["empty_text"],
+            }
 
         # 1. Record participant's content (with semantic dedup)
         if not self._is_duplicate_semantic(context, user_id=user_id):
@@ -418,16 +437,20 @@ class AgentMemory:
 
         # 2. Record agent's response (with semantic dedup)
         if not self._is_duplicate_semantic(my_response, agent_id=self.agent_id):
-            agent_metadata = self._format_metadata(
-                MemoryType.INTERACTION,
-                {**metadata_base, "about": "xiao_guang"},
-            )
-            agent_result = self.memory.add(
-                messages=[{"role": "assistant", "content": my_response}],
-                agent_id=self.agent_id,
-                metadata=agent_metadata,
-            )
-            agent_memory_id = agent_result.get("id", "unknown")
+            try:
+                agent_metadata = self._format_metadata(
+                    MemoryType.INTERACTION,
+                    {**metadata_base, "about": "xiao_guang"},
+                )
+                agent_result = self.memory.add(
+                    messages=[{"role": "assistant", "content": my_response}],
+                    agent_id=self.agent_id,
+                    metadata=agent_metadata,
+                )
+                agent_memory_id = agent_result.get("id", "unknown")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"agent_memory_add_failed: {exc}")
+                logger.warning("agent_memory_add_failed", error=str(exc))
         else:
             skipped_count += 1
             logger.debug("agent_memory_skipped_duplicate")
@@ -436,15 +459,19 @@ class AgentMemory:
         summary_content = context[:300] + "..." if len(context) > 300 else context
         summary_text = f"[{user_id}] {summary_content}"
         if not self._is_duplicate_semantic(summary_text, user_id=self.agent_id):
-            summary_metadata = self._format_metadata(
-                MemoryType.INTERACTION,
-                {**metadata_base, "about": "participant_summary", "source_participant": user_id},
-            )
-            self.memory.add(
-                messages=[{"role": "user", "content": summary_text}],
-                user_id=self.agent_id,
-                metadata=summary_metadata,
-            )
+            try:
+                summary_metadata = self._format_metadata(
+                    MemoryType.INTERACTION,
+                    {**metadata_base, "about": "participant_summary", "source_participant": user_id},
+                )
+                self.memory.add(
+                    messages=[{"role": "user", "content": summary_text}],
+                    user_id=self.agent_id,
+                    metadata=summary_metadata,
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"participant_summary_add_failed: {exc}")
+                logger.warning("participant_summary_add_failed", error=str(exc))
         else:
             skipped_count += 1
 
@@ -457,17 +484,21 @@ class AgentMemory:
                 interaction_type=interaction_type,
                 participant_id=participant_id,
                 skipped_duplicates=skipped_count,
+                errors=errors,
             )
         else:
             logger.debug(
                 "interaction_all_duplicates_skipped",
                 interaction_type=interaction_type,
                 participant_id=participant_id,
+                errors=errors,
             )
 
         return {
             "participant_memory_id": participant_memory_id,
             "agent_memory_id": agent_memory_id,
+            "skipped_duplicates": skipped_count,
+            "errors": errors,
         }
 
     def add_reflection(self, insights: str, based_on: Optional[list[str]] = None) -> Optional[str]:
@@ -643,6 +674,7 @@ class AgentMemory:
         post_content: str,
         max_memories: int = 5,
         participant_id: Optional[str] = None,
+        min_relevance: float = 0.7,
     ) -> str:
         """Get relevant context for generating a response.
 
@@ -679,7 +711,8 @@ class AgentMemory:
             key=lambda x: (x.relevance_score or 0, x.created_at.timestamp()),
             reverse=True,
         )
-        memories = memories[:max_memories]
+        # Filter by relevance threshold
+        memories = [m for m in memories if (m.relevance_score or 0) >= min_relevance][:max_memories]
 
         context_parts = ["Relevant memories:"]
         for mem in memories:
