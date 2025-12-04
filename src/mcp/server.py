@@ -17,7 +17,7 @@ from openai import AsyncOpenAI
 
 from ..agent.persona import Persona, PersonaEngine
 from ..memory.mem0_adapter import AgentMemory, MemoryType
-from ..utils.config import get_settings
+from ..utils.config import get_settings, is_reasoning_model
 
 # Initialize FastMCP server
 mcp = FastMCP("Anima")
@@ -115,6 +115,8 @@ async def _get_persona_engine() -> PersonaEngine:
             openai_client=openai_client,
             model=settings.openai_model,
             advanced_model=settings.openai_model_advanced,
+            max_completion_tokens=settings.max_completion_tokens,
+            reasoning_effort=settings.reasoning_effort,
         )
 
     return _persona_engine
@@ -131,6 +133,7 @@ def _get_memory() -> AgentMemory:
             qdrant_url=settings.qdrant_url,
             qdrant_api_key=settings.qdrant_api_key,
             database_url=settings.database_url,
+            llm_model=settings.openai_model,
         )
     return _memory
 
@@ -332,15 +335,18 @@ async def anima_reflect(topic: str = "") -> str:
 
 Write a brief reflection (2-3 sentences) as {engine.persona.identity.name}."""
 
-        response = await engine.openai.chat.completions.create(
-            model=engine.model,
-            messages=[
+        kwargs = {
+            "model": engine.model,
+            "messages": [
                 {"role": "system", "content": engine.system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=200,
-            temperature=0.7,
-        )
+            "max_completion_tokens": engine.max_completion_tokens,
+        }
+        if is_reasoning_model(engine.model):
+            kwargs["reasoning_effort"] = engine.reasoning_effort
+
+        response = await engine.openai.chat.completions.create(**kwargs)
 
         reflection = response.choices[0].message.content or ""
 

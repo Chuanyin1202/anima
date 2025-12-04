@@ -23,7 +23,7 @@ import feedparser
 import httpx
 from openai import AsyncOpenAI
 
-from .config import get_settings
+from .config import get_settings, is_reasoning_model
 from .ideas import upsert_ideas
 
 
@@ -31,7 +31,6 @@ from .ideas import upsert_ideas
 DEFAULT_FEEDS = [
     "https://openai.com/blog/rss.xml",
     "https://huggingface.co/blog/feed.xml",
-    "https://paperswithcode.com/rss.xml",
     "https://hnrss.org/newest?q=AI",
 ]
 
@@ -39,7 +38,7 @@ DEFAULT_FEEDS = [
 async def fetch_feed(url: str, timeout: int = 30) -> list[dict]:
     """Fetch and parse a feed, return entries with title/link/summary."""
     # feedparser 會自行抓取，非 async；用 httpx 先取內容再 parse
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         resp = await client.get(url)
         resp.raise_for_status()
         parsed = feedparser.parse(resp.text)
@@ -75,7 +74,9 @@ async def summarize_entries(
     client: AsyncOpenAI,
     persona_name: str,
     limit: int,
-    model_name: str,
+    model: str,
+    max_completion_tokens: int,
+    reasoning_effort: str,
 ) -> list[dict]:
     """Use OpenAI to turn entries into Chinese, human-sounding snippets."""
     items = entries[:limit]
@@ -88,13 +89,17 @@ async def summarize_entries(
 
 標題：{e.get('title','')}
 摘要：{e.get('summary','')}
-連結：{e.get('link','')}
+    連結：{e.get('link','')}
 """
-        resp = await client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=220,
-        )
+        kwargs = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_completion_tokens": max_completion_tokens,
+        }
+        if is_reasoning_model(model):
+            kwargs["reasoning_effort"] = reasoning_effort
+
+        resp = await client.chat.completions.create(**kwargs)
         text = resp.choices[0].message.content or ""
         snippets = text.strip()
         summaries.append(
@@ -140,7 +145,9 @@ async def main(feeds: Optional[list[str]] = None, limit: int = 8) -> int:
         client,
         settings.agent_name,
         limit=limit,
-        model_name=settings.openai_model,
+        model=settings.openai_model,
+        max_completion_tokens=settings.max_completion_tokens,
+        reasoning_effort=settings.reasoning_effort,
     )
 
     # Save markdown for human browsing

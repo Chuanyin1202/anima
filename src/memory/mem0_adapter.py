@@ -105,8 +105,10 @@ class AgentMemory:
         qdrant_url: str = "http://localhost:6333",
         qdrant_api_key: Optional[str] = None,
         database_url: Optional[str] = None,
+        llm_model: str = "gpt-5-mini",
     ):
         self.agent_id = agent_id
+        self.llm_model = llm_model
 
         # Configure Mem0
         # Parse URL to handle HTTPS connections properly
@@ -134,7 +136,7 @@ class AgentMemory:
             "llm": {
                 "provider": "openai",
                 "config": {
-                    "model": "gpt-5-nano",
+                    "model": self.llm_model,
                     "api_key": openai_api_key,
                 },
             },

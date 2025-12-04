@@ -12,6 +12,7 @@ import structlog
 from openai import AsyncOpenAI
 
 from .mem0_adapter import AgentMemory, MemoryEntry, MemoryType
+from ..utils.config import is_reasoning_model
 
 logger = structlog.get_logger()
 
@@ -29,13 +30,17 @@ class ReflectionEngine:
         openai_client: AsyncOpenAI,
         persona_name: str,
         persona_description: str,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-5-mini",
+        max_completion_tokens: int = 500,
+        reasoning_effort: str = "low",
     ):
         self.memory = memory
         self.openai = openai_client
         self.persona_name = persona_name
         self.persona_description = persona_description
         self.model = model
+        self.max_completion_tokens = max_completion_tokens
+        self.reasoning_effort = reasoning_effort
 
     async def generate_daily_reflection(
         self,
@@ -134,15 +139,18 @@ Consider: What did you learn? How does this fit with your existing views?
 """
 
         try:
-            response = await self.openai.chat.completions.create(
-                model=self.model,
-                messages=[
+            kwargs = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": self.persona_description},
                     {"role": "user", "content": prompt},
                 ],
-                max_completion_tokens=150,
-                reasoning_effort="medium",
-            )
+                "max_completion_tokens": self.max_completion_tokens,
+            }
+            if is_reasoning_model(self.model):
+                kwargs["reasoning_effort"] = self.reasoning_effort
+
+            response = await self.openai.chat.completions.create(**kwargs)
 
             reflection = response.choices[0].message.content
             if reflection:
@@ -200,21 +208,24 @@ Focus specifically on: {topic}
 Generate 3-5 high-level insights that capture the essence of these experiences.
 Write in first person, as if you're journaling your thoughts.
 Be specific but concise.
-"""
+        """
 
         try:
-            response = await self.openai.chat.completions.create(
-                model=self.model,
-                messages=[
+            kwargs = {
+                "model": self.model,
+                "messages": [
                     {
                         "role": "system",
                         "content": f"You are {self.persona_name}. {self.persona_description}",
                     },
                     {"role": "user", "content": prompt},
                 ],
-                max_completion_tokens=500,
-                reasoning_effort="medium",
-            )
+                "max_completion_tokens": self.max_completion_tokens,
+            }
+            if is_reasoning_model(self.model):
+                kwargs["reasoning_effort"] = self.reasoning_effort
+
+            response = await self.openai.chat.completions.create(**kwargs)
 
             reflection = response.choices[0].message.content
             logger.info(

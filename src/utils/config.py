@@ -24,9 +24,16 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = Field(..., description="OpenAI API key")
-    openai_model: str = Field(default="gpt-5-nano", description="Default OpenAI model")
+    openai_model: str = Field(default="gpt-5-mini", description="Default OpenAI model")
     openai_model_advanced: str = Field(
-        default="gpt-5.1", description="Advanced model for complex tasks"
+        default="gpt-5.1", description="Advanced model for complex tasks (posting)"
+    )
+    # gpt-5 系列需要足夠的 tokens 給 reasoning + output
+    max_completion_tokens: int = Field(
+        default=500, description="Max completion tokens for gpt-5 series"
+    )
+    reasoning_effort: str = Field(
+        default="low", description="Reasoning effort for gpt-5 series"
     )
 
     # Threads API
@@ -76,6 +83,11 @@ class Settings(BaseSettings):
     simulation_data_dir: str = Field(
         default="data/simulations", description="Directory for simulation data files"
     )
+
+
+def is_reasoning_model(model: str) -> bool:
+    """判斷是否為支援 reasoning_effort 的模型。"""
+    return "gpt-5" in model or "o1" in model or "o3" in model
 
 
 @lru_cache

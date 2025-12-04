@@ -92,6 +92,7 @@ async def create_agent_brain(
         qdrant_url=settings.qdrant_url,
         qdrant_api_key=settings.qdrant_api_key,
         database_url=settings.database_url,
+        llm_model=settings.openai_model,
     )
 
     # Initialize Threads client (real or mock)
@@ -124,6 +125,8 @@ async def create_agent_brain(
         openai_client=openai_client,
         model=settings.openai_model,
         advanced_model=settings.openai_model_advanced,
+        max_completion_tokens=settings.max_completion_tokens,
+        reasoning_effort=settings.reasoning_effort,
         observation_mode=observation_mode,
         simulation_logger=simulation_logger,
     )

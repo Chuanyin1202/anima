@@ -15,6 +15,7 @@ from typing import Any, Optional
 import structlog
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
+from ..utils.config import is_reasoning_model
 
 logger = structlog.get_logger()
 
@@ -230,27 +231,29 @@ class PersonaEngine:
         self,
         persona: Persona,
         openai_client: AsyncOpenAI,
-        model: str = "gpt-4o-mini",
-        advanced_model: str = "gpt-4o",
+        model: str = "gpt-5-mini",
+        advanced_model: str = "gpt-5.1",
+        max_completion_tokens: int = 500,
+        reasoning_effort: str = "low",
     ):
         self.persona = persona
         self.openai = openai_client
         self.model = model
         self.advanced_model = advanced_model
+        self.max_completion_tokens = max_completion_tokens
+        self.reasoning_effort = reasoning_effort
         self.system_prompt = persona.get_system_prompt()
 
     async def generate_response(
         self,
         context: str,
         memory_context: str = "",
-        max_tokens: int = 150,
     ) -> str:
         """Generate a persona-consistent response.
 
         Args:
             context: The content/post to respond to
             memory_context: Relevant memories for context
-            max_tokens: Maximum tokens for response
 
         Returns:
             Generated response
@@ -263,15 +266,18 @@ Write a reply as {self.persona.identity.name}. Be authentic to your personality.
 Keep it concise (under {self.persona.interaction_rules.max_response_length} characters).
 Don't be generic - let your personality shine through."""
 
-        response = await self.openai.chat.completions.create(
-            model=self.advanced_model,
-            messages=[
+        kwargs = {
+            "model": self.advanced_model,
+            "messages": [
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            max_completion_tokens=max_tokens,
-            reasoning_effort="low",
-        )
+            "max_completion_tokens": self.max_completion_tokens,
+        }
+        if is_reasoning_model(self.advanced_model):
+            kwargs["reasoning_effort"] = self.reasoning_effort
+
+        response = await self.openai.chat.completions.create(**kwargs)
 
         generated = response.choices[0].message.content or ""
 
@@ -322,15 +328,18 @@ Your values: {', '.join(self.persona.personality.values)}
 
 Respond with just "YES" or "NO" followed by a brief reason."""
 
-        response = await self.openai.chat.completions.create(
-            model=self.model,
-            messages=[
+        kwargs = {
+            "model": self.model,
+            "messages": [
                 {"role": "system", "content": "You decide whether to engage with posts. Be selective."},
                 {"role": "user", "content": prompt},
             ],
-            max_completion_tokens=500,  # gpt-5 系列需要足夠 tokens 進行推理
-            reasoning_effort="low",
-        )
+            "max_completion_tokens": self.max_completion_tokens,
+        }
+        if is_reasoning_model(self.model):
+            kwargs["reasoning_effort"] = self.reasoning_effort
+
+        response = await self.openai.chat.completions.create(**kwargs)
 
         result = response.choices[0].message.content or "NO"
         should_engage = result.upper().startswith("YES")
@@ -368,15 +377,18 @@ Score the adherence from 0.0 to 1.0, where:
 
 Respond with just the number."""
 
-        result = await self.openai.chat.completions.create(
-            model=self.model,
-            messages=[
+        kwargs = {
+            "model": self.model,
+            "messages": [
                 {"role": "system", "content": "You are an expert at evaluating persona consistency."},
                 {"role": "user", "content": prompt},
             ],
-            max_completion_tokens=500,  # gpt-5 系列需要足夠 tokens 進行推理
-            reasoning_effort="low",
-        )
+            "max_completion_tokens": self.max_completion_tokens,
+        }
+        if is_reasoning_model(self.model):
+            kwargs["reasoning_effort"] = self.reasoning_effort
+
+        result = await self.openai.chat.completions.create(**kwargs)
 
         try:
             score = float(result.choices[0].message.content or "0.5")
@@ -403,15 +415,18 @@ Communication style: {self.persona.personality.communication_style}
 Rewrite to be more authentic while keeping the same meaning.
 Keep it under {self.persona.interaction_rules.max_response_length} characters."""
 
-        response = await self.openai.chat.completions.create(
-            model=self.advanced_model,  # Use better model for refinement
-            messages=[
+        kwargs = {
+            "model": self.advanced_model,  # Use better model for refinement
+            "messages": [
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            max_completion_tokens=200,
-            reasoning_effort="low",
-        )
+            "max_completion_tokens": self.max_completion_tokens,
+        }
+        if is_reasoning_model(self.advanced_model):
+            kwargs["reasoning_effort"] = self.reasoning_effort
+
+        response = await self.openai.chat.completions.create(**kwargs)
 
         refined = response.choices[0].message.content or original
 

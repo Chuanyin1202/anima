@@ -22,6 +22,7 @@ from ..memory import AgentMemory, ReflectionEngine
 from ..observation import SimulationLogger
 from ..threads import Post, ThreadsClient
 from .persona import Persona, PersonaEngine
+from ..utils.config import is_reasoning_model
 from ..utils.ideas import format_ideas_for_context, get_recent_ideas
 
 logger = structlog.get_logger()
@@ -57,8 +58,10 @@ class AgentBrain:
         threads_client: ThreadsClient,
         memory: AgentMemory,
         openai_client: AsyncOpenAI,
-        model: str = "gpt-4o-mini",
-        advanced_model: str = "gpt-4o",
+        model: str = "gpt-5-mini",
+        advanced_model: str = "gpt-5.1",
+        max_completion_tokens: int = 500,
+        reasoning_effort: str = "low",
         max_interactions_per_cycle: int = 5,
         min_relevance_score: float = 0.6,
         observation_mode: bool = False,
@@ -68,6 +71,10 @@ class AgentBrain:
         self.threads = threads_client
         self.memory = memory
         self.openai = openai_client
+        self.model = model
+        self.advanced_model = advanced_model
+        self.max_completion_tokens = max_completion_tokens
+        self.reasoning_effort = reasoning_effort
 
         # Observation mode configuration
         self.observation_mode = observation_mode
@@ -79,6 +86,8 @@ class AgentBrain:
             openai_client=openai_client,
             model=model,
             advanced_model=advanced_model,
+            max_completion_tokens=max_completion_tokens,
+            reasoning_effort=reasoning_effort,
         )
         self.reflection_engine = ReflectionEngine(
             memory=memory,
@@ -86,6 +95,8 @@ class AgentBrain:
             persona_name=persona.identity.name,
             persona_description=persona.get_system_prompt(),
             model=model,
+            max_completion_tokens=max_completion_tokens,
+            reasoning_effort=reasoning_effort,
         )
 
         # Configuration
@@ -515,15 +526,18 @@ Guidelines:
 - Don't be preachy or generic
 """
 
-        response = await self.openai.chat.completions.create(
-            model=self.persona_engine.advanced_model,
-            messages=[
+        kwargs = {
+            "model": self.advanced_model,
+            "messages": [
                 {"role": "system", "content": self.persona.get_system_prompt()},
                 {"role": "user", "content": prompt},
             ],
-            max_completion_tokens=150,
-            reasoning_effort="low",
-        )
+            "max_completion_tokens": self.max_completion_tokens,
+        }
+        if is_reasoning_model(self.advanced_model):
+            kwargs["reasoning_effort"] = self.reasoning_effort
+
+        response = await self.openai.chat.completions.create(**kwargs)
 
         post_content = response.choices[0].message.content or ""
 
