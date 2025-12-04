@@ -52,6 +52,7 @@ class Identity(BaseModel):
     background: str = Field(
         default="", description="Brief background story"
     )
+    signature: Optional[str] = None  # Optional signature for original posts
 
 
 class Personality(BaseModel):

@@ -96,7 +96,7 @@ async def create_agent_brain(
     )
 
     # Initialize Threads client (real or mock)
-    if settings.use_mock_threads:
+    if is_mock_mode:
         logger.info("using_mock_threads_client")
         threads_client = MockThreadsClient(
             access_token=settings.threads_access_token,

@@ -421,16 +421,20 @@ class AgentMemory:
 
         # 1. Record participant's content (with semantic dedup)
         if not self._is_duplicate_semantic(context, user_id=user_id):
-            participant_metadata = self._format_metadata(
-                MemoryType.INTERACTION,
-                {**metadata_base, "about": "participant"},
-            )
-            participant_result = self.memory.add(
-                messages=[{"role": "user", "content": context}],
-                user_id=user_id,
-                metadata=participant_metadata,
-            )
-            participant_memory_id = participant_result.get("id", "unknown")
+            try:
+                participant_metadata = self._format_metadata(
+                    MemoryType.INTERACTION,
+                    {**metadata_base, "about": "participant"},
+                )
+                participant_result = self.memory.add(
+                    messages=[{"role": "user", "content": context}],
+                    user_id=user_id,
+                    metadata=participant_metadata,
+                )
+                participant_memory_id = participant_result.get("id", "unknown")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"participant_memory_add_failed: {exc}")
+                logger.warning("participant_memory_add_failed", error=str(exc))
         else:
             skipped_count += 1
             logger.debug("participant_memory_skipped_duplicate", participant=user_id)

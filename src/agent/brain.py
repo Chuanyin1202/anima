@@ -564,8 +564,9 @@ Guidelines:
 
         post_content = response.choices[0].message.content or ""
 
-        # Add AI signature for original posts
-        ai_signature = "\n\n— Alex 不在，AI 代班"
+        ai_signature = ""
+        if self.persona.identity.signature:
+            ai_signature = f"\n\n{self.persona.identity.signature}"
 
         # Enforce persona limit and Threads 500 char cap (safe hard stop)
         # Account for signature length
