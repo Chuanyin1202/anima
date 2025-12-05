@@ -459,23 +459,29 @@ class AgentBrain:
                 )
 
             # === NORMAL MODE: Actually post ===
+            # Add signature if configured
+            ai_signature = ""
+            if self.persona.identity.signature:
+                ai_signature = f"\n\n{self.persona.identity.signature}"
+            response_with_signature = response + ai_signature
+
+            # Verify target post still exists before replying
             try:
-                reply_id = await self.threads.reply_to_post(post.id, response)
+                await self.threads.get_post(post.id)
             except ThreadsAPIError as e:
-                # Threads API sometimes returns "resource does not exist" for reply IDs;
-                # retry against the parent thread if we have it.
-                if (
-                    "requested resource does not exist" in (e.message or str(e)).lower()
-                    and getattr(post, "replied_to_id", None)
-                ):
+                if e.status_code == 404:
+                    # Post was deleted or made private - skip this interaction
                     logger.warning(
-                        "reply_target_missing_retry_parent",
-                        target_id=post.id,
-                        parent_id=post.replied_to_id,
+                        "reply_target_deleted",
+                        post_id=post.id,
+                        username=post.username,
                     )
-                    reply_id = await self.threads.reply_to_post(post.replied_to_id, response)
+                    return None
                 else:
+                    # Re-raise other errors (5xx, network, etc.)
                     raise
+
+            reply_id = await self.threads.reply_to_post(post.id, response_with_signature)
 
             # Record the interaction in memory
             self.memory.record_interaction(
