@@ -5,11 +5,12 @@
 ## 特色
 
 - **持久記憶**：Mem0 三層記憶（情節/語義/反思），並分離 agent/user scope，確保對話者與小光的內容不混淆
-- **人格一致性**：借鏡 TinyTroupe 的 persona schema，產生/校驗回覆
+- **人格一致性**：借鏡 TinyTroupe 的 persona schema，產生/校驗回覆，支援 Adherence 評分與原因追蹤
 - **反思機制**：借鏡 Generative Agents，定期生成高層次洞見
 - **身份識別**：MCP 模式可「我是/我叫」或 `anima_set_user` 指定身份，記憶會標記 participant_xxx
 - **平台無關**：CLI/daemon/MCP 模式並行，易於接到其他平台
-- **可自訂人格**：透過 JSON 定義角色，隨時切換
+- **可自訂人格**：透過 JSON 定義角色，支援 AI 簽名、emoji 控制等細節
+- **觀察與報表**：模擬/真實運行皆有日誌，一頁報表追蹤品質與健康度
 
 ## 架構
 
@@ -49,6 +50,14 @@ poetry install
 - `THREADS_ACCESS_TOKEN` / `THREADS_USER_ID`（使用 Threads 時）
 - `PERSONA_FILE`（預設 `personas/default.json`）
 - `QDRANT_URL` / `QDRANT_API_KEY`（雲端 Qdrant）或本地 `http://localhost:6333`
+
+可選：
+- `OPENAI_MODEL`（預設 `gpt-5-mini`，用於決策/驗證）
+- `OPENAI_MODEL_ADVANCED`（預設 `gpt-5.1`，用於生成回覆）
+- `REASONING_EFFORT`（預設 `low`，gpt-5 系列推理強度）
+- `MAX_COMPLETION_TOKENS`（預設 `500`）
+- `MAX_DAILY_POSTS` / `MAX_DAILY_REPLIES`（速率限制）
+- `LOG_LEVEL`（預設 `INFO`）
 
 ### 3. 啟動本地服務（開發用，可選）
 
@@ -208,18 +217,30 @@ USE_MOCK_THREADS=true anima cycle
     "name": "你的角色名",
     "age": 25,
     "occupation": "職業",
-    "background": "背景故事..."
+    "background": "背景故事...",
+    "signature": "— AI 代班"
   },
   "personality": {
     "traits": ["好奇", "幽默", "思考型"],
     "values": ["真實", "創意"],
     "communication_style": "輕鬆自然"
   },
-  ...
+  "speech_patterns": {
+    "emoji_usage": "never",
+    "typical_phrases": ["蠻有趣", "這個厲害"]
+  },
+  "interaction_rules": {
+    "max_response_length": 280
+  }
 }
 ```
 
-詳細的 schema 請參考 `src/agent/persona.py`。
+**重點欄位：**
+- `signature`：回覆結尾簽名（如「— AI 代班」）
+- `emoji_usage`：設為 `"never"` 可讓回覆更像真人
+- `max_response_length`：限制回覆長度
+
+詳細 schema 請參考 `src/agent/persona.py`。
 
 ## 記憶與身份設計（重點）
 
