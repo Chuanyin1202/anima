@@ -84,6 +84,12 @@ anima observe --mock --cycles 3
 anima review             # 互動式標註
 anima review --stats     # 查看統計
 anima analyze            # 產生分析報告
+
+# 一頁報表
+anima report                              # 從觀察模式資料產生
+anima report --source data/real_logs      # 從真實運行資料產生
+anima report --html                       # 同時產生 HTML
+anima report --days 14                    # 指定時間範圍
 ```
 
 ### 5. MCP（Claude Desktop 等）
@@ -170,6 +176,27 @@ USE_MOCK_THREADS=true anima cycle
 - 本地開發和調試
 - CI/CD 自動化測試
 - 沒有 API 權限時的快速原型
+
+## 日誌與報表
+
+### 資料儲存
+
+| 模式 | 資料目錄 | 說明 |
+|-----|---------|------|
+| 觀察模式 | `data/simulations/` | 模擬運行記錄 |
+| 真實模式 | `data/real_logs/` | 實際發文記錄 |
+| 報表輸出 | `data/reports/` | 一頁報表 |
+
+### 報表內容
+
+一頁報表包含：
+- **Persona 摘要**：角色基本資訊
+- **記憶庫概況**：記憶統計
+- **決策與互動**：互動率、skip 理由分析
+- **互動健康度**：發送成功/失敗統計
+- **品質標註**：Adherence 分數與標註分布
+- **問題診斷**：低分案例與評分原因
+- **可操作建議**：自動生成的改進建議
 
 ## 自訂人格
 
