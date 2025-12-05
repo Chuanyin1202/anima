@@ -21,6 +21,7 @@ from openai import AsyncOpenAI
 from ..memory import AgentMemory, ReflectionEngine
 from ..observation import SimulationLogger
 from ..threads import Post, ThreadsClient
+from ..threads.client import ThreadsAPIError
 from .persona import EMOJI_PATTERN, Persona, PersonaEngine
 from ..utils.config import is_reasoning_model
 from ..utils.ideas import format_ideas_for_context, get_recent_ideas
@@ -458,7 +459,23 @@ class AgentBrain:
                 )
 
             # === NORMAL MODE: Actually post ===
-            reply_id = await self.threads.reply_to_post(post.id, response)
+            try:
+                reply_id = await self.threads.reply_to_post(post.id, response)
+            except ThreadsAPIError as e:
+                # Threads API sometimes returns "resource does not exist" for reply IDs;
+                # retry against the parent thread if we have it.
+                if (
+                    "requested resource does not exist" in (e.message or str(e)).lower()
+                    and getattr(post, "replied_to_id", None)
+                ):
+                    logger.warning(
+                        "reply_target_missing_retry_parent",
+                        target_id=post.id,
+                        parent_id=post.replied_to_id,
+                    )
+                    reply_id = await self.threads.reply_to_post(post.replied_to_id, response)
+                else:
+                    raise
 
             # Record the interaction in memory
             self.memory.record_interaction(

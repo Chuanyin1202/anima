@@ -110,6 +110,9 @@ class AgentMemory:
         self.agent_id = agent_id
         self.llm_model = llm_model
 
+        # Patch mem0 qdrant adapter to avoid upserting vector=None (causes PointStruct errors)
+        self._patch_mem0_qdrant_update()
+
         # Configure Mem0
         # Parse URL to handle HTTPS connections properly
         from urllib.parse import urlparse
@@ -152,7 +155,9 @@ class AgentMemory:
                 "config": qdrant_config,
             },
             "custom_fact_extraction_prompt": CUSTOM_FACT_EXTRACTION_PROMPT,
-            "version": "v1.1",  # Enable graph memory features
+            # Graph memory v1.1 enables relationship extraction between memories.
+            # The "event: NONE" / vector=None issue is fixed by _patch_mem0_qdrant_update().
+            "version": "v1.1",
         }
 
         # Add PostgreSQL for metadata if provided
@@ -162,6 +167,73 @@ class AgentMemory:
         self.memory = Memory.from_config(config)
         self.dedup_threshold = 0.85  # 相似度閾值，超過視為重複
         logger.info("memory_initialized", agent_id=agent_id)
+
+    @staticmethod
+    def _patch_mem0_qdrant_update() -> None:
+        """Monkey-patch mem0 qdrant adapter: use set_payload when vector is None."""
+        try:
+            from qdrant_client.models import PointStruct  # Local import to avoid hard dep when mocked
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("qdrant_pointstruct_import_failed", error=str(exc))
+            return
+
+        try:
+            from mem0.vector_stores.qdrant import Qdrant as Mem0Qdrant
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mem0_qdrant_patch_import_failed", error=str(exc))
+            return
+
+        if getattr(Mem0Qdrant, "_anima_patched", False):
+            return
+
+        def patched_update(self, vector_id, vector=None, payload=None):  # type: ignore[override]
+            # If vector is None, only update payload (keep existing embeddings)
+            if vector is None:
+                if payload:
+                    try:
+                        self.client.set_payload(
+                            collection_name=self.collection_name,
+                            payload=payload,
+                            points=[vector_id],
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("qdrant_set_payload_failed", error=str(exc))
+                return
+
+            # Otherwise, behave like original update
+            try:
+                point = PointStruct(id=vector_id, vector=vector, payload=payload)
+                self.client.upsert(collection_name=self.collection_name, points=[point])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("qdrant_upsert_failed", error=str(exc))
+
+        Mem0Qdrant.update = patched_update
+        Mem0Qdrant._anima_patched = True
+
+    def _safe_add(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        context: str = "",
+    ) -> dict[str, Any]:
+        """Add memory entry with guard to avoid noisy PointStruct errors."""
+        try:
+            return self.memory.add(
+                messages=messages,
+                user_id=user_id,
+                agent_id=agent_id,
+                metadata=metadata,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "memory_add_failed",
+                context=context,
+                error=str(exc),
+            )
+            return {}
 
     def _has_post_id(self, post_id: str, search_limit: int = 100) -> bool:
         """Check if a post_id already exists in memory (exact match).
@@ -303,13 +375,18 @@ class AgentMemory:
             },
         )
 
-        result = self.memory.add(
+        result = self._safe_add(
             messages=[{"role": "user", "content": content}],
             user_id=self.agent_id,
             metadata=metadata,
+            context="observe",
         )
 
-        memory_id = result.get("id", "unknown")
+        memory_id = result.get("id")
+        if not memory_id:
+            logger.warning("observation_record_failed", source=source, post_id=post_id)
+            return None
+
         logger.debug("observation_recorded", memory_id=memory_id, source=source)
         return memory_id
 
@@ -346,12 +423,16 @@ class AgentMemory:
         summary = f"[skipped: {skip_reason[:50]}] {content}"
 
         try:
-            result = self.memory.add(
+            result = self._safe_add(
                 messages=[{"role": "user", "content": summary}],
                 agent_id=self.agent_id,
                 metadata=metadata,
+                context="record_skipped",
             )
-            memory_id = result.get("id", "unknown")
+            memory_id = result.get("id")
+            if not memory_id:
+                logger.warning("skipped_record_failed", post_id=post_id, skip_reason=skip_reason[:30])
+                return None
             logger.debug(
                 "skipped_recorded",
                 memory_id=memory_id,
@@ -426,12 +507,16 @@ class AgentMemory:
                     MemoryType.INTERACTION,
                     {**metadata_base, "about": "participant"},
                 )
-                participant_result = self.memory.add(
+                participant_result = self._safe_add(
                     messages=[{"role": "user", "content": context}],
                     user_id=user_id,
                     metadata=participant_metadata,
+                    context="interaction_participant",
                 )
-                participant_memory_id = participant_result.get("id", "unknown")
+                participant_memory_id = participant_result.get("id")
+                if not participant_memory_id:
+                    errors.append("participant_memory_add_failed: no_id")
+                    logger.warning("participant_memory_add_failed_no_id", post_id=post_id)
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"participant_memory_add_failed: {exc}")
                 logger.warning("participant_memory_add_failed", error=str(exc))
@@ -446,12 +531,16 @@ class AgentMemory:
                     MemoryType.INTERACTION,
                     {**metadata_base, "about": "xiao_guang"},
                 )
-                agent_result = self.memory.add(
+                agent_result = self._safe_add(
                     messages=[{"role": "assistant", "content": my_response}],
                     agent_id=self.agent_id,
                     metadata=agent_metadata,
+                    context="interaction_agent",
                 )
-                agent_memory_id = agent_result.get("id", "unknown")
+                agent_memory_id = agent_result.get("id")
+                if not agent_memory_id:
+                    errors.append("agent_memory_add_failed: no_id")
+                    logger.warning("agent_memory_add_failed_no_id", post_id=post_id)
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"agent_memory_add_failed: {exc}")
                 logger.warning("agent_memory_add_failed", error=str(exc))
@@ -468,10 +557,11 @@ class AgentMemory:
                     MemoryType.INTERACTION,
                     {**metadata_base, "about": "participant_summary", "source_participant": user_id},
                 )
-                self.memory.add(
+                self._safe_add(
                     messages=[{"role": "user", "content": summary_text}],
                     user_id=self.agent_id,
                     metadata=summary_metadata,
+                    context="interaction_summary",
                 )
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"participant_summary_add_failed: {exc}")
@@ -527,13 +617,18 @@ class AgentMemory:
             {"based_on_memories": based_on or []},
         )
 
-        result = self.memory.add(
+        result = self._safe_add(
             messages=[{"role": "assistant", "content": reflection_content}],
             user_id=self.agent_id,
             metadata=metadata,
+            context="add_reflection",
         )
 
-        memory_id = result.get("id", "unknown")
+        memory_id = result.get("id")
+        if not memory_id:
+            logger.warning("reflection_add_failed_unknown_id")
+            return None
+
         logger.info("reflection_added", memory_id=memory_id)
         return memory_id
 

@@ -134,6 +134,17 @@ class ThreadsClient:
 
             error_msg = error_data.get("error", {}).get("message", str(e))
             error_code = error_data.get("error", {}).get("code")
+
+            logger.warning(
+                "api_error_details",
+                status_code=e.response.status_code,
+                error_code=error_code,
+                error_msg=error_msg,
+                error_data=error_data,
+                endpoint=endpoint,
+                method=method,
+            )
+
             raise ThreadsAPIError(
                 message=error_msg,
                 status_code=e.response.status_code,
@@ -303,6 +314,7 @@ class ThreadsClient:
                         timestamp=reply.timestamp,
                         username=reply.username,
                         is_reply=True,
+                        replied_to_id=reply.replied_to_id,
                     )
                     all_replies.append(reply_as_post)
 

@@ -41,6 +41,7 @@ class Post(BaseModel):
     username: Optional[str] = None
     is_quote_post: bool = False
     shortcode: Optional[str] = None
+    replied_to_id: Optional[str] = None  # Parent post ID if this is a reply
 
     # Search-specific fields
     has_replies: Optional[bool] = None
