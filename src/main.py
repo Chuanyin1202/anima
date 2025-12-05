@@ -114,10 +114,18 @@ async def create_agent_brain(
             user_id=settings.threads_user_id,
         )
 
-    # Initialize simulation logger if in observation mode
+    # Initialize simulation logger
     simulation_logger = None
     if observation_mode:
         simulation_logger = SimulationLogger(settings.simulation_data_dir)
+        simulation_logger.start_session(
+            persona_name=persona.identity.name,
+            persona_file=settings.persona_file,
+        )
+    else:
+        # Log real runs separately to avoid mixing with simulation data
+        real_log_dir = Path("data/real_logs")
+        simulation_logger = SimulationLogger(real_log_dir)
         simulation_logger.start_session(
             persona_name=persona.identity.name,
             persona_file=settings.persona_file,
@@ -368,6 +376,10 @@ async def async_main(args: argparse.Namespace) -> int:
         logger.exception("unexpected_error", error=str(e))
         return 1
     finally:
+        # End session for real mode logging
+        if brain.simulation_logger:
+            brain.simulation_logger.end_session()
+
         # Ensure underlying clients are closed when leaving
         try:
             await brain.close()

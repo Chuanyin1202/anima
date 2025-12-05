@@ -185,9 +185,11 @@ class OnePagerReport:
     def _posting_health(self, responses: list[dict]) -> dict[str, Any]:
         posted = [r for r in responses if r.get("was_posted")]
         not_posted = [r for r in responses if not r.get("was_posted")]
+        failed = [r for r in responses if r.get("error")]
         return {
             "posted": len(posted),
             "not_posted": len(not_posted),
+            "failed": len(failed),
         }
 
     def _low_adherence_cases(self, responses: list[dict], labels: dict[str, dict], threshold: float = 0.85, limit: int = 5) -> list[dict]:
@@ -289,7 +291,9 @@ class OnePagerReport:
         # Posting health
         lines.append("## 互動健康度")
         lines.append(f"- 已發送回覆：{posting['posted']} 筆")
-        lines.append(f"- 未發送/模擬或失敗：{posting['not_posted']} 筆")
+        lines.append(f"- 未發送/模擬：{posting['not_posted']} 筆")
+        if posting.get("failed"):
+            lines.append(f"- 發送失敗：{posting['failed']} 筆")
         lines.append("")
 
         # Quality

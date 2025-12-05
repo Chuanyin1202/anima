@@ -231,8 +231,8 @@ class AgentBrain:
                 print(f"   Decision: {decision_str}", flush=True)
                 print(f"   Reason: {reason}", flush=True)
 
-                # Log decision (for simulation)
-                if self.observation_mode and self.simulation_logger:
+                # Log decision if logger is available (simulation or real)
+                if self.simulation_logger:
                     self.simulation_logger.log_decision(
                         post_id=post.id,
                         should_engage=should_engage,
@@ -258,8 +258,8 @@ class AgentBrain:
                     author=post.username,
                 )
 
-                # Log observation (for simulation)
-                if self.observation_mode and self.simulation_logger:
+                # Log observation if logger is available
+                if self.simulation_logger:
                     self.simulation_logger.log_observation(post)
 
                 # Try to interact
@@ -357,6 +357,8 @@ class AgentBrain:
         """
         refinement_attempts = 0
         adherence_score: Optional[float] = None
+        adherence_reason: Optional[str] = None
+        response = ""  # Initialize to avoid NameError in except block
 
         try:
             # Get relevant memories for context
@@ -488,6 +490,20 @@ class AgentBrain:
 
             reply_id = await self.threads.reply_to_post(post.id, response_with_signature)
 
+            # Log real posting result if logger is available
+            if self.simulation_logger:
+                self.simulation_logger.log_response(
+                    post_id=post.id,
+                    original_post_text=post.text or "",
+                    generated_response=response,
+                    adherence_score=adherence_score or score or 0,
+                    memory_context_used=memory_lines,
+                    refinement_attempts=refinement_attempts,
+                    adherence_reason=adherence_reason,
+                    was_posted=True,
+                    error=None,
+                )
+
             # Record the interaction in memory
             self.memory.record_interaction(
                 my_response=response,
@@ -521,6 +537,20 @@ class AgentBrain:
             ), adherence_score, refinement_attempts
 
         except Exception as e:
+            # Log posting failure if logger is available (real mode)
+            if self.simulation_logger and not self.observation_mode:
+                self.simulation_logger.log_response(
+                    post_id=post.id,
+                    original_post_text=post.text or "",
+                    generated_response=response,
+                    adherence_score=adherence_score or 0,
+                    memory_context_used=[],
+                    refinement_attempts=refinement_attempts,
+                    adherence_reason=adherence_reason,
+                    was_posted=False,
+                    error=str(e),
+                )
+
             logger.error("interaction_failed", post_id=post.id, error=str(e))
             return (
                 InteractionResult(

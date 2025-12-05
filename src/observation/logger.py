@@ -204,6 +204,8 @@ class SimulationLogger:
         refinement_attempts: int = 0,
         decision_id: Optional[str] = None,
         adherence_reason: Optional[str] = None,
+        was_posted: bool = False,
+        error: Optional[str] = None,
     ) -> ResponseRecord:
         """Log a generated response (not actually posted).
 
@@ -216,6 +218,8 @@ class SimulationLogger:
             refinement_attempts: Number of times the response was refined.
             decision_id: Link to the decision record.
             adherence_reason: Reason for the adherence score from LLM.
+            was_posted: Whether the response was actually sent (for real runs).
+            error: Posting error message/code if not posted.
 
         Returns:
             The created response record.
@@ -228,7 +232,8 @@ class SimulationLogger:
             adherence_score=adherence_score,
             adherence_reason=adherence_reason,
             memory_context_used=memory_context_used or [],
-            was_posted=False,  # Always False in observation mode
+            was_posted=was_posted,
+            error=error,
             refinement_attempts=refinement_attempts,
         )
         self._append_to_file(self.responses_file, record.model_dump())

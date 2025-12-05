@@ -78,7 +78,8 @@ class ResponseRecord(BaseModel):
     adherence_score: float
     adherence_reason: Optional[str] = None  # LLM 評分原因
     memory_context_used: list[str] = Field(default_factory=list)
-    was_posted: bool = False  # Always False in observation mode
+    was_posted: bool = False  # Always False in observation mode unless explicitly set
+    error: Optional[str] = None  # Posting error (if any)
     refinement_attempts: int = 0
 
 
