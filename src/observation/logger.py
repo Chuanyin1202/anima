@@ -203,6 +203,7 @@ class SimulationLogger:
         memory_context_used: Optional[list[str]] = None,
         refinement_attempts: int = 0,
         decision_id: Optional[str] = None,
+        adherence_reason: Optional[str] = None,
     ) -> ResponseRecord:
         """Log a generated response (not actually posted).
 
@@ -214,6 +215,7 @@ class SimulationLogger:
             memory_context_used: List of memory content used for context.
             refinement_attempts: Number of times the response was refined.
             decision_id: Link to the decision record.
+            adherence_reason: Reason for the adherence score from LLM.
 
         Returns:
             The created response record.
@@ -224,6 +226,7 @@ class SimulationLogger:
             original_post_text=original_post_text,
             generated_response=generated_response,
             adherence_score=adherence_score,
+            adherence_reason=adherence_reason,
             memory_context_used=memory_context_used or [],
             was_posted=False,  # Always False in observation mode
             refinement_attempts=refinement_attempts,

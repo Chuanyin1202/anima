@@ -390,21 +390,25 @@ class AgentBrain:
             print(f"   Response: {response}", flush=True)
 
             # Verify persona adherence
-            passes, score = await self.persona_engine.verify_persona_adherence(response)
+            passes, score, adherence_reason = await self.persona_engine.verify_persona_adherence(response)
             adherence_score = score
             print(f"   Adherence: {score:.0%} ({'PASS' if passes else 'REFINE'})", flush=True)
+            if adherence_reason:
+                print(f"   Reason: {adherence_reason}", flush=True)
 
             if not passes:
-                logger.info("refining_response", original_score=score)
+                logger.info("refining_response", original_score=score, reason=adherence_reason)
                 print(f"   Refining response...", flush=True)
                 response = await self.persona_engine.refine_response(response)
                 refinement_attempts += 1
-                passes, score = await self.persona_engine.verify_persona_adherence(
+                passes, score, adherence_reason = await self.persona_engine.verify_persona_adherence(
                     response
                 )
                 adherence_score = score
                 print(f"   Refined: {response}", flush=True)
                 print(f"   New adherence: {score:.0%}", flush=True)
+                if adherence_reason:
+                    print(f"   Reason: {adherence_reason}", flush=True)
 
                 if not passes:
                     print(f"   [WARN] Still not matching persona, skipping", flush=True)
@@ -429,6 +433,7 @@ class AgentBrain:
                         adherence_score=score,
                         memory_context_used=memory_lines,
                         refinement_attempts=refinement_attempts,
+                        adherence_reason=adherence_reason,
                     )
 
                 # Still record to memory for realistic simulation

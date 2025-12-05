@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import logging
+from datetime import datetime
 import sys
 from pathlib import Path
 
@@ -22,7 +23,12 @@ from openai import AsyncOpenAI
 from .agent import AgentBrain, AgentScheduler, Persona
 from .agent.scheduler import run_cli_mode
 from .memory import AgentMemory
-from .observation import ReviewCLI, SimulationAnalyzer, SimulationLogger
+from .observation import (
+    ReviewCLI,
+    SimulationAnalyzer,
+    SimulationLogger,
+)
+from .observation.report import OnePagerReport
 from .threads import MockThreadsClient, ThreadsClient
 from .utils import get_settings
 
@@ -278,6 +284,45 @@ def run_analyze_mode(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_report_mode(args: argparse.Namespace) -> int:
+    """Generate one-pager report for real/simulation data."""
+    settings = get_settings()
+
+    source_dir = getattr(args, "source", None) or settings.simulation_data_dir
+    persona_path = getattr(args, "persona", None) or settings.persona_file
+
+    since = None
+    if getattr(args, "since", None):
+        try:
+            since = datetime.fromisoformat(args.since)
+        except ValueError:
+            logger.error("invalid_since_format", value=args.since)
+            return 1
+
+    days = getattr(args, "days", 7)
+    exclude_mock = not getattr(args, "include_mock", False)
+    recent_limit = getattr(args, "recent_limit", 30)
+    output_path = getattr(args, "output", None)
+    if output_path:
+        output_md = Path(output_path)
+    else:
+        report_dir = Path("data/reports")
+        report_dir.mkdir(parents=True, exist_ok=True)
+        output_md = report_dir / f"onepager-{datetime.now().date()}.md"
+
+    generator = OnePagerReport(
+        data_dir=source_dir,
+        persona_path=persona_path,
+        since=since,
+        days=days,
+        exclude_mock=exclude_mock,
+        recent_limit=recent_limit,
+    )
+
+    generator.generate(output_md=output_md, output_html=getattr(args, "html", False))
+    return 0
+
+
 async def async_main(args: argparse.Namespace) -> int:
     """Async main function."""
     # Handle observation mode separately
@@ -356,12 +401,13 @@ Examples:
   anima review --stats     # Show labeling statistics
   anima analyze            # Generate analysis report
   anima analyze --output report.json
+  anima report --days 7    # Generate one-pager report
         """,
     )
 
     parser.add_argument(
         "mode",
-        choices=["cycle", "post", "reflect", "stats", "daemon", "observe", "review", "analyze"],
+        choices=["cycle", "post", "reflect", "stats", "daemon", "observe", "review", "analyze", "report"],
         default="cycle",
         nargs="?",
         help="Operation mode (default: cycle)",
@@ -425,6 +471,40 @@ Examples:
         help="Output file for export/analyze",
     )
 
+    # Report mode arguments
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Number of days to include in report (default: 7)",
+    )
+    parser.add_argument(
+        "--since",
+        type=str,
+        help="ISO date/time to start from (overrides --days)",
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        help="Data directory for report source (default: data/simulations)",
+    )
+    parser.add_argument(
+        "--include-mock",
+        action="store_true",
+        help="Include mock_* records in report (default: exclude)",
+    )
+    parser.add_argument(
+        "--recent-limit",
+        type=int,
+        default=30,
+        help="Recent interaction count to show in report (default: 30)",
+    )
+    parser.add_argument(
+        "--html",
+        action="store_true",
+        help="Also output HTML alongside Markdown (report mode)",
+    )
+
     args = parser.parse_args()
 
     # Override persona file if provided
@@ -438,6 +518,9 @@ Examples:
 
     if args.mode == "analyze":
         return run_analyze_mode(args)
+
+    if args.mode == "report":
+        return run_report_mode(args)
 
     return asyncio.run(async_main(args))
 

@@ -361,11 +361,11 @@ Respond with just "YES" or "NO" followed by a brief reason."""
 
         return should_engage, reason
 
-    async def verify_persona_adherence(self, response: str) -> tuple[bool, float]:
+    async def verify_persona_adherence(self, response: str) -> tuple[bool, float, str]:
         """Verify that a response adheres to the persona.
 
         Returns:
-            Tuple of (passes: bool, adherence_score: float)
+            Tuple of (passes: bool, adherence_score: float, reason: str)
         """
         prompt = f"""Evaluate if this response sounds like it came from {self.persona.identity.name}.
 
@@ -382,12 +382,13 @@ Score the adherence from 0.0 to 1.0, where:
 - 0.3 = somewhat out of character
 - 0.0 = completely wrong character
 
-Respond with just the number."""
+Respond in JSON format:
+{{"score": 0.8, "reason": "簡短說明為什麼給這個分數（用中文，20字內）"}}"""
 
         kwargs = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are an expert at evaluating persona consistency."},
+                {"role": "system", "content": "You are an expert at evaluating persona consistency. Always respond in valid JSON."},
                 {"role": "user", "content": prompt},
             ],
             "max_completion_tokens": self.max_completion_tokens,
@@ -397,16 +398,27 @@ Respond with just the number."""
 
         result = await self.openai.chat.completions.create(**kwargs)
 
+        content = result.choices[0].message.content or ""
+        score = 0.5
+        reason = ""
+
         try:
-            score = float(result.choices[0].message.content or "0.5")
-            score = max(0.0, min(1.0, score))  # Clamp to [0, 1]
-        except ValueError:
-            score = 0.5
+            # Try to parse as JSON
+            data = json.loads(content)
+            score = float(data.get("score", 0.5))
+            reason = data.get("reason", "")
+        except (json.JSONDecodeError, ValueError):
+            # Fallback: try to parse as plain number
+            try:
+                score = float(content.strip())
+            except ValueError:
+                score = 0.5
 
+        score = max(0.0, min(1.0, score))  # Clamp to [0, 1]
         passes = score >= 0.6
-        logger.debug("persona_adherence_check", score=score, passes=passes)
+        logger.debug("persona_adherence_check", score=score, passes=passes, reason=reason)
 
-        return passes, score
+        return passes, score, reason
 
     async def refine_response(self, original: str, feedback: str = "") -> str:
         """Refine a response to better match the persona."""
