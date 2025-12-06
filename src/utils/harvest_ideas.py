@@ -27,10 +27,22 @@ from .config import get_settings, is_reasoning_model
 from .ideas import upsert_ideas
 
 
-# Default feeds (prefer官方/穩定來源；Anthropic 無官方 RSS 暫不列）
+# Default feeds (prefer官方/穩定來源)
 DEFAULT_FEEDS = [
+    # 官方 AI 公司 Blog
     "https://openai.com/blog/rss.xml",
     "https://huggingface.co/blog/feed.xml",
+    "https://deepmind.google/blog/rss.xml",
+    "https://blog.google/technology/ai/rss",
+    # 科技媒體 AI 版
+    "https://techcrunch.com/category/artificial-intelligence/feed/",
+    "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+    "https://arstechnica.com/ai/feed",
+    "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
+    # 開發者社群
+    "https://github.blog/feed/",
+    "https://dev.to/feed/tag/ai",
+    # Hacker News AI
     "https://hnrss.org/newest?q=AI",
 ]
 
