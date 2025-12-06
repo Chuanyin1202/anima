@@ -30,6 +30,7 @@ from .observation import (
 )
 from .observation.report import OnePagerReport
 from .threads import MockThreadsClient, ThreadsClient
+from .threads.apify_provider import ApifyProvider
 from .utils import get_settings
 
 # Configure structlog
@@ -131,6 +132,28 @@ async def create_agent_brain(
             persona_file=settings.persona_file,
         )
 
+    # External providers
+    external_providers = []
+    if (
+        getattr(settings, "apify_enabled", False)
+        and settings.apify_api_token
+        and settings.apify_actor_id
+        and not is_mock_mode
+    ):
+        try:
+            external_providers.append(
+                ApifyProvider(
+                    api_token=settings.apify_api_token,
+                    actor_id=settings.apify_actor_id,
+                    self_username=settings.threads_username or None,
+                    max_age_hours=settings.apify_max_age_hours,
+                    max_items=settings.apify_max_items,
+                )
+            )
+            logger.info("apify_provider_enabled", actor=settings.apify_actor_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("apify_provider_init_failed", error=str(exc))
+
     # Create brain
     brain = AgentBrain(
         persona=persona,
@@ -143,6 +166,7 @@ async def create_agent_brain(
         reasoning_effort=settings.reasoning_effort,
         observation_mode=observation_mode,
         simulation_logger=simulation_logger,
+        external_providers=external_providers,
     )
 
     return brain

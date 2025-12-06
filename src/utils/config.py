@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     threads_app_secret: str = Field(default="", description="Meta Threads App Secret")
     threads_access_token: str = Field(default="", description="Threads access token")
     threads_user_id: str = Field(default="", description="Threads user ID")
+    threads_username: str = Field(default="", description="Threads username (for self-filter)")
 
     # Mock Mode (for testing without real API)
     use_mock_threads: bool = Field(
@@ -83,6 +84,13 @@ class Settings(BaseSettings):
     simulation_data_dir: str = Field(
         default="data/simulations", description="Directory for simulation data files"
     )
+
+    # External Providers (Apify)
+    apify_enabled: bool = Field(default=False, description="Enable Apify provider")
+    apify_api_token: str = Field(default="", description="Apify API token")
+    apify_actor_id: str = Field(default="", description="Apify actor ID")
+    apify_max_age_hours: int = Field(default=24, description="Max age (hours) for Apify posts")
+    apify_max_items: int = Field(default=30, description="Max items to fetch from Apify")
 
 
 def is_reasoning_model(model: str) -> bool:

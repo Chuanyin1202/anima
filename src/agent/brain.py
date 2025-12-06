@@ -20,7 +20,7 @@ from openai import AsyncOpenAI
 
 from ..memory import AgentMemory, ReflectionEngine
 from ..observation import SimulationLogger
-from ..threads import Post, ThreadsClient
+from ..threads import ExternalPostProvider, Post, ThreadsClient
 from ..threads.client import ThreadsAPIError
 from .persona import EMOJI_PATTERN, Persona, PersonaEngine
 from ..utils.config import is_reasoning_model
@@ -67,6 +67,7 @@ class AgentBrain:
         min_relevance_score: float = 0.6,
         observation_mode: bool = False,
         simulation_logger: Optional[SimulationLogger] = None,
+        external_providers: Optional[list["ExternalPostProvider"]] = None,
     ):
         self.persona = persona
         self.threads = threads_client
@@ -80,6 +81,7 @@ class AgentBrain:
         # Observation mode configuration
         self.observation_mode = observation_mode
         self.simulation_logger = simulation_logger
+        self.external_providers = external_providers or []
 
         # Initialize engines
         self.persona_engine = PersonaEngine(
@@ -311,6 +313,15 @@ class AgentBrain:
         """
         posts = []
 
+        # External providers (optional)
+        for provider in self.external_providers:
+            try:
+                external = await provider.fetch_posts(max_items=30)
+                posts.extend(external)
+                logger.info("external_posts", provider=provider.name, count=len(external))
+            except Exception as e:  # noqa: BLE001
+                logger.warning("provider_error", provider=provider.name, error=str(e))
+
         # Primary: Get replies to my posts (no special permission needed)
         try:
             replies = await self.threads.get_replies_to_my_posts(
@@ -336,13 +347,14 @@ class AgentBrain:
                     # Expected to fail without permission, just log debug
                     logger.debug("search_fallback_failed", interest=interest)
 
-        # Deduplicate by post ID
+        # Deduplicate by post ID (preserve first occurrence)
         seen_ids = set()
         unique_posts = []
         for post in posts:
-            if post.id not in seen_ids:
-                seen_ids.add(post.id)
-                unique_posts.append(post)
+            if post.id in seen_ids:
+                continue
+            seen_ids.add(post.id)
+            unique_posts.append(post)
 
         # Shuffle to add variety
         random.shuffle(unique_posts)
