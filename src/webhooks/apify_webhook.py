@@ -164,12 +164,14 @@ class ApifyWebhookHandler:
                     )
 
             except Exception as exc:  # noqa: BLE001
+                # Log error but don't re-raise - webhook was received successfully,
+                # retrying won't fix internal processing errors (e.g., invalid ID formats)
                 logger.error(
                     "apify_webhook_handler_failed",
                     error=str(exc),
                     exc_info=True,
                 )
-                raise
+                # Don't raise - return normally so Apify doesn't retry
 
     async def _fetch_dataset_items(self, dataset_id: str) -> list[dict[str, Any]]:
         """Fetch items from Apify dataset.
