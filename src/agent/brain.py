@@ -534,6 +534,42 @@ class AgentBrain:
                     refinement_attempts,
                 )
 
+            async def _reply_with_retry(max_retries: int = 3) -> str:
+                """Try replying with limited retries on transient errors."""
+                delay = 1.0
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        return await self.threads.reply_to_post(target_post_id, response_with_signature)
+                    except ThreadsAPIError as e:
+                        transient = (e.status_code and e.status_code >= 500) or (e.error_code == 2)
+                        if not transient or attempt == max_retries:
+                            raise
+                        logger.warning(
+                            "reply_retrying_after_error",
+                            attempt=attempt,
+                            max_retries=max_retries,
+                            post_id=target_post_id,
+                            status_code=e.status_code,
+                            error_code=e.error_code,
+                            error=e.message,
+                            delay=delay,
+                        )
+                        await asyncio.sleep(delay)
+                        delay *= 2
+                    except Exception as exc:  # noqa: BLE001
+                        if attempt == max_retries:
+                            raise
+                        logger.warning(
+                            "reply_retrying_after_unknown_error",
+                            attempt=attempt,
+                            max_retries=max_retries,
+                            post_id=target_post_id,
+                            error=str(exc),
+                            delay=delay,
+                        )
+                        await asyncio.sleep(delay)
+                        delay *= 2
+
             # Verify target post still exists before replying
             try:
                 await self.threads.get_post(target_post_id)
@@ -550,7 +586,7 @@ class AgentBrain:
                     # Re-raise other errors (5xx, network, etc.)
                     raise
 
-            reply_id = await self.threads.reply_to_post(target_post_id, response_with_signature)
+            reply_id = await _reply_with_retry()
 
             # Log real posting result if logger is available
             if self.simulation_logger:
