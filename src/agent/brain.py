@@ -158,7 +158,7 @@ class AgentBrain:
         except Exception:
             logger.debug("openai_close_failed", exc_info=True)
 
-    async def run_cycle(self) -> list[InteractionResult]:
+    async def run_cycle(self, external_posts: Optional[list[Post]] = None) -> list[InteractionResult]:
         """Run one complete interaction cycle.
 
         This method:
@@ -167,6 +167,10 @@ class AgentBrain:
         3. Decides which to engage with
         4. Generates and posts responses
         5. Records everything to memory
+
+        Args:
+            external_posts: Optional list of posts supplied externally (e.g., webhook).
+                If provided, skips fetching and uses these posts directly.
 
         Returns:
             List of interaction results
@@ -199,8 +203,12 @@ class AgentBrain:
                 return results
 
             # Step 3: Fetch posts to observe
-            posts = await self._fetch_interesting_posts()
-            logger.info("posts_fetched", count=len(posts))
+            if external_posts:
+                logger.info("using_external_posts", count=len(external_posts))
+                posts = list(external_posts)
+            else:
+                posts = await self._fetch_interesting_posts()
+                logger.info("posts_fetched", count=len(posts))
             print(f"\n{'='*60}", flush=True)
             print(f"Fetched {len(posts)} posts", flush=True)
             print(f"{'='*60}", flush=True)
@@ -361,6 +369,38 @@ class AgentBrain:
 
         return unique_posts[:20]  # Max 20 posts to consider
 
+    async def _resolve_post_id(self, post: Post) -> Optional[str]:
+        """Resolve a Threads Graph API friendly post ID.
+
+        External sources may provide shortcodes/URLs; try to map them to an ID.
+        """
+        # Try as-is (may work if provider already supplies Graph ID)
+        if post.id:
+            try:
+                await self.threads.get_post(post.id)
+                return post.id
+            except Exception:
+                logger.debug("direct_id_failed", post_id=post.id, exc_info=True)
+
+        # Numeric IDs are assumed valid
+        if post.id and post.id.isdigit():
+            return post.id
+
+        # Try keyword search as a fallback (may require permission)
+        if post.text:
+            query = post.text[:64]
+            try:
+                search_result = await self.threads.search_posts(query=query, limit=5)
+                for candidate in search_result.posts:
+                    if post.username and candidate.username and candidate.username.lower() != post.username.lower():
+                        continue
+                    # Simple match: use first candidate that shares username
+                    return candidate.id
+            except Exception:
+                logger.debug("search_resolve_failed", post_id=post.id, exc_info=True)
+
+        return None
+
     async def _interact_with_post(self, post: Post) -> tuple[InteractionResult, Optional[float], int]:
         """Generate and post a response to a specific post.
 
@@ -484,15 +524,25 @@ class AgentBrain:
                 ai_signature = f"\n\n{self.persona.identity.signature}"
             response_with_signature = response + ai_signature
 
+            # Resolve a Graph-compatible post ID (shortcode/url may fail)
+            target_post_id = await self._resolve_post_id(post)
+            if not target_post_id:
+                logger.warning("reply_target_unresolved", post_id=post.id, username=post.username)
+                return (
+                    InteractionResult(success=False, post_id=post.id, reason="resolve_post_id_failed"),
+                    adherence_score,
+                    refinement_attempts,
+                )
+
             # Verify target post still exists before replying
             try:
-                await self.threads.get_post(post.id)
+                await self.threads.get_post(target_post_id)
             except ThreadsAPIError as e:
                 if e.status_code == 404:
                     # Post was deleted or made private - skip this interaction
                     logger.warning(
                         "reply_target_deleted",
-                        post_id=post.id,
+                        post_id=target_post_id,
                         username=post.username,
                     )
                     return None
@@ -500,7 +550,7 @@ class AgentBrain:
                     # Re-raise other errors (5xx, network, etc.)
                     raise
 
-            reply_id = await self.threads.reply_to_post(post.id, response_with_signature)
+            reply_id = await self.threads.reply_to_post(target_post_id, response_with_signature)
 
             # Log real posting result if logger is available
             if self.simulation_logger:

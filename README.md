@@ -255,6 +255,68 @@ USE_MOCK_THREADS=true anima cycle
   - 需要設定 `OPENAI_API_KEY`，可在 Zeabur 的 `/app/data` volume 中持久化輸出
   - 可自訂 feed：`--feeds https://example.com/rss ...`
 
+## 海巡來源（Threads Toolkit / Apify）
+
+### Persona 搜尋關鍵字
+- 在 persona JSON 中新增 `interests.search_keywords` 陣列定義搜尋關鍵字
+- 範例：`"search_keywords": ["AI", "LLM", "Agent", "Claude"]`
+- 每個 persona 可以有不同的關鍵字設定
+
+### Threads Toolkit（輪詢模式）
+- 啟用：`THREADS_TOOLKIT_ENABLED=true` + `THREADS_TOOLKIT_URL`
+- 可選配置：`THREADS_TOOLKIT_API_KEY`、`THREADS_TOOLKIT_QUERY`、`THREADS_TOOLKIT_MAX_AGE_HOURS`、`THREADS_TOOLKIT_MAX_ITEMS`
+- 輸入採 threads-toolkit 的 JSON（id/username/content/timestamp 等），會經 `ingest_posts` 轉成內部 Post
+- 自動濾除自己帳號與過舊貼文
+
+### Apify（輪詢模式）
+- 啟用：`APIFY_ENABLED=true` + `APIFY_API_TOKEN` + `APIFY_ACTOR_ID`
+- 搜尋 keyword：顯式設定 `APIFY_KEYWORD`
+- 或直接給完整 input JSON：`APIFY_ACTOR_INPUT_JSON='{"action":"search","keyword":"AI","includePosts":true,...}'`
+- **注意**：不再自動從 persona 取關鍵字，必須明確設定
+
+### Apify（Webhook 模式）- 推薦
+```bash
+# 配置環境變數
+WEBHOOK_ENABLED=true
+WEBHOOK_HOST=0.0.0.0
+WEBHOOK_PORT=8080
+WEBHOOK_SECRET=your_secret_token
+
+APIFY_ENABLED=true
+APIFY_USE_WEBHOOK=true
+APIFY_API_TOKEN=your_apify_token
+
+# 啟動 webhook 伺服器
+anima webhook
+```
+
+**Webhook 端點**：
+- `POST /webhooks/apify` - 接收 Apify webhook 推送
+- 需要在 Apify Actor 設定中配置 webhook URL：`http://your-server:8080/webhooks/apify`
+- 如果設定了 `WEBHOOK_SECRET`，需在請求 header 加入：`Authorization: Bearer your_secret_token`
+
+**優勢**：
+- 即時反應：Actor 執行完立即觸發互動
+- 節省資源：不需要定期輪詢
+- 更準確：直接從 dataset 抓取資料
+
+**Webhook Payload 範例**：
+```json
+{
+  "eventType": "ACTOR.RUN.SUCCEEDED",
+  "resource": {
+    "id": "run_id",
+    "actId": "actor_id",
+    "defaultDatasetId": "dataset_id"
+  }
+}
+```
+
+### 注意事項
+- 外部海巡會先抓外部來源，再抓自己的回覆區，確保互動不限於自身貼文串
+- Webhook 模式與輪詢模式互斥（`APIFY_USE_WEBHOOK=true` 時會停用輪詢）
+- 可同時使用 Threads Toolkit（輪詢）+ Apify（Webhook）
+
 ## 排程（已內建）
 - 互動循環：預設每 4 小時
 - 素材抓取：每 4 小時

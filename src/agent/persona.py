@@ -116,6 +116,10 @@ class Interests(BaseModel):
         default_factory=list,
         description="Topics to avoid or express negativity about",
     )
+    search_keywords: list[str] = Field(
+        default_factory=list,
+        description="Keywords for external post search (e.g., Apify, Threads Toolkit)",
+    )
 
 
 class Opinions(BaseModel):

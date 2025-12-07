@@ -30,7 +30,7 @@ from .observation import (
 )
 from .observation.report import OnePagerReport
 from .threads import MockThreadsClient, ThreadsClient
-from .threads.apify_provider import ApifyProvider
+from .threads.toolkit_provider import ThreadsToolkitProvider
 from .utils import get_settings
 
 # Configure structlog
@@ -135,24 +135,24 @@ async def create_agent_brain(
     # External providers
     external_providers = []
     if (
-        getattr(settings, "apify_enabled", False)
-        and settings.apify_api_token
-        and settings.apify_actor_id
+        getattr(settings, "threads_toolkit_enabled", False)
+        and settings.threads_toolkit_url
         and not is_mock_mode
     ):
         try:
             external_providers.append(
-                ApifyProvider(
-                    api_token=settings.apify_api_token,
-                    actor_id=settings.apify_actor_id,
+                ThreadsToolkitProvider(
+                    api_url=settings.threads_toolkit_url,
+                    api_key=settings.threads_toolkit_api_key or None,
+                    query=settings.threads_toolkit_query or None,
                     self_username=settings.threads_username or None,
-                    max_age_hours=settings.apify_max_age_hours,
-                    max_items=settings.apify_max_items,
+                    max_age_hours=settings.threads_toolkit_max_age_hours,
+                    max_items=settings.threads_toolkit_max_items,
                 )
             )
-            logger.info("apify_provider_enabled", actor=settings.apify_actor_id)
+            logger.info("threads_toolkit_provider_enabled", url=settings.threads_toolkit_url)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("apify_provider_init_failed", error=str(exc))
+            logger.warning("threads_toolkit_provider_init_failed", error=str(exc))
 
     # Create brain
     brain = AgentBrain(
@@ -355,6 +355,65 @@ def run_report_mode(args: argparse.Namespace) -> int:
     return 0
 
 
+async def run_webhook_server(args: argparse.Namespace) -> int:
+    """Run webhook server to receive external notifications."""
+    from .webhooks import ApifyWebhookHandler, WebhookServer
+
+    settings = get_settings()
+    brain: AgentBrain | None = None
+
+    if not settings.webhook_enabled:
+        logger.warning("webhook_disabled", msg="Set WEBHOOK_ENABLED=true to enable webhook server")
+        return 1
+
+    try:
+        brain = await create_agent_brain(settings=settings, use_mock=False)
+
+        # Create webhook server
+        server = WebhookServer(
+            host=settings.webhook_host,
+            port=settings.webhook_port,
+            webhook_secret=settings.webhook_secret or None,
+        )
+
+        # Setup Apify webhook handler if enabled
+        if settings.apify_enabled and settings.apify_use_webhook:
+            if not settings.apify_api_token:
+                logger.error("apify_webhook_no_token", msg="APIFY_API_TOKEN required for webhook mode")
+                return 1
+
+            apify_handler = ApifyWebhookHandler(
+                brain=brain,
+                self_username=settings.threads_username,
+                max_age_hours=settings.apify_max_age_hours,
+                max_items=settings.apify_max_items,
+                apify_api_token=settings.apify_api_token,
+                max_retries=3,
+                retry_delay_base=2.0,
+            )
+
+            server.register_handler("apify", apify_handler.handle_webhook)
+            logger.info("apify_webhook_registered", path="/webhooks/apify")
+
+        # Start server
+        logger.info("webhook_server_starting", host=settings.webhook_host, port=settings.webhook_port)
+        await server.start()
+        return 0
+    except KeyboardInterrupt:
+        logger.info("webhook_server_stopped")
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        logger.error("webhook_server_failed", error=str(exc), exc_info=True)
+        return 1
+    finally:
+        logger.info("closing_brain_resources")
+        if brain:
+            try:
+                await brain.close()
+            except Exception as e:  # noqa: BLE001
+                logger.error("brain_close_failed", error=str(e))
+
+
 async def async_main(args: argparse.Namespace) -> int:
     """Async main function."""
     # Handle observation mode separately
@@ -426,6 +485,9 @@ Examples:
   anima stats              # Show agent statistics
   anima daemon             # Run as daemon with scheduler
 
+  # Webhook mode (receive external notifications)
+  anima webhook            # Start webhook server for Apify/external providers
+
   # Observation mode (simulate without posting)
   anima observe            # Run one observation cycle
   anima observe --cycles 5 # Run 5 observation cycles
@@ -443,7 +505,7 @@ Examples:
 
     parser.add_argument(
         "mode",
-        choices=["cycle", "post", "reflect", "stats", "daemon", "observe", "review", "analyze", "report"],
+        choices=["cycle", "post", "reflect", "stats", "daemon", "observe", "review", "analyze", "report", "webhook"],
         default="cycle",
         nargs="?",
         help="Operation mode (default: cycle)",
@@ -557,6 +619,9 @@ Examples:
 
     if args.mode == "report":
         return run_report_mode(args)
+
+    if args.mode == "webhook":
+        return asyncio.run(run_webhook_server(args))
 
     return asyncio.run(async_main(args))
 

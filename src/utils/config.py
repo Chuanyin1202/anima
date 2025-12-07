@@ -91,6 +91,38 @@ class Settings(BaseSettings):
     apify_actor_id: str = Field(default="", description="Apify actor ID")
     apify_max_age_hours: int = Field(default=24, description="Max age (hours) for Apify posts")
     apify_max_items: int = Field(default=30, description="Max items to fetch from Apify")
+    apify_keyword: str = Field(default="", description="Keyword for Apify search action")
+    apify_actor_input_json: str = Field(
+        default="",
+        description="Optional JSON string for Apify actor input (run-sync body)",
+    )
+    apify_use_webhook: bool = Field(default=False, description="Use webhook-style ingest instead of polling run-sync")
+
+    # Webhook Configuration
+    webhook_enabled: bool = Field(default=False, description="Enable webhook server")
+    webhook_host: str = Field(default="0.0.0.0", description="Webhook server host")
+    webhook_port: int = Field(default=8080, description="Webhook server port")
+    webhook_secret: str = Field(default="", description="Webhook authentication secret")
+
+    # External Providers (Threads Toolkit)
+    threads_toolkit_enabled: bool = Field(
+        default=False, description="Enable Threads Toolkit provider"
+    )
+    threads_toolkit_url: str = Field(
+        default="", description="Threads Toolkit API endpoint for posts"
+    )
+    threads_toolkit_api_key: str = Field(
+        default="", description="Optional API key for Threads Toolkit"
+    )
+    threads_toolkit_query: str = Field(
+        default="", description="Optional default query for Toolkit searches"
+    )
+    threads_toolkit_max_age_hours: int = Field(
+        default=24, description="Max age (hours) for Toolkit posts"
+    )
+    threads_toolkit_max_items: int = Field(
+        default=30, description="Max items to fetch from Toolkit"
+    )
 
 
 def is_reasoning_model(model: str) -> bool:

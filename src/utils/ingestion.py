@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from ..threads import Post
+from ..threads.models import MediaType
 
 
 def _parse_timestamp(ts: str | None) -> Optional[datetime]:
@@ -64,12 +65,22 @@ def ingest_posts(
             if "/post/" in url:
                 post_id = url.rsplit("/post/", 1)[-1]
 
+        images = item.get("images") or item.get("media") or []
+        videos = item.get("videos") or []
+        media_type = MediaType.TEXT_POST
+        if videos:
+            media_type = MediaType.CAROUSEL if len(videos) > 1 or images else MediaType.VIDEO
+        elif images:
+            media_type = MediaType.CAROUSEL if len(images) > 1 else MediaType.IMAGE
+
+        permalink = item.get("permalink") or item.get("url")
+
         parsed.append(
             Post(
                 id=post_id,
                 username=username,
                 text=content,
-                url=item.get("url"),
+                permalink=permalink,
                 timestamp=ts,
                 likes=item.get("stats", {}).get("likes") or item.get("likes"),
                 replies=item.get("stats", {}).get("replies") or item.get("replies"),
@@ -77,7 +88,8 @@ def ingest_posts(
                 source=item.get("source"),
                 parent_id=item.get("parentId") or item.get("parent_id"),
                 quoted_post=item.get("quotedPost") or item.get("quoted_post"),
-                media=item.get("images") or item.get("media"),
+                media=images or videos,
+                media_type=media_type,
             )
         )
 

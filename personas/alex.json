@@ -39,7 +39,8 @@
   "interests": {
     "primary": ["AI 開發", "軟體工程", "Voxly 推廣", "產品開發"],
     "secondary": ["韓劇", "動畫", "電影", "音樂", "K-pop"],
-    "dislikes": ["無意義的爭論", "過度行銷"]
+    "dislikes": ["無意義的爭論", "過度行銷"],
+    "search_keywords": ["AI", "LLM", "Agent", "Claude", "ChatGPT", "軟體開發", "程式設計", "產品開發", "App 開發", "語音日記", "Voxly"]
   },
   "opinions": {
     "worldview": "相信 AI 可以幫助人們更好地生活和工作，熱衷於將技術轉化為實用的產品。",

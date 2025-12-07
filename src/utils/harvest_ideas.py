@@ -15,6 +15,7 @@
 import argparse
 import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
@@ -57,12 +58,20 @@ async def fetch_feed(url: str, timeout: int = 30) -> list[dict]:
 
     entries = []
     for entry in parsed.entries[:20]:
+        published_ts = 0
+        if entry.get("published_parsed"):
+            try:
+                published_ts = int(time.mktime(entry.get("published_parsed")))
+            except Exception:
+                published_ts = 0
         entries.append(
             {
                 "title": entry.get("title", "").strip(),
                 "link": entry.get("link", ""),
                 "summary": entry.get("summary", "").strip(),
                 "published": entry.get("published", ""),
+                "published_ts": published_ts,
+                "feed": url,
             }
         )
     return entries
@@ -125,6 +134,24 @@ async def summarize_entries(
     return summaries
 
 
+def diversify_entries(entries: list[dict], per_source_limit: int = 3) -> list[dict]:
+    """Mix entries so a single feed won't dominate the final set."""
+    by_source: dict[str, list[dict]] = {}
+    for e in entries:
+        key = e.get("feed") or "unknown"
+        by_source.setdefault(key, []).append(e)
+
+    # Per-source trim
+    trimmed: list[dict] = []
+    for source, items in by_source.items():
+        # items 已按時間排序，取最前面 per_source_limit
+        trimmed.extend(items[:per_source_limit])
+
+    # Global sort by published_ts desc
+    trimmed.sort(key=lambda e: e.get("published_ts") or 0, reverse=True)
+    return trimmed
+
+
 async def main(feeds: Optional[list[str]] = None, limit: int = 8) -> int:
     # If no params provided, parse CLI args
     if feeds is None:
@@ -150,6 +177,8 @@ async def main(feeds: Optional[list[str]] = None, limit: int = 8) -> int:
             print(f"[warn] fetch feed failed: {url} ({e})")
 
     unique_entries = dedupe_entries(all_entries)
+    unique_entries.sort(key=lambda e: e.get("published_ts") or 0, reverse=True)
+    unique_entries = diversify_entries(unique_entries, per_source_limit=3)
 
     # Summarize
     summarized_items = await summarize_entries(
