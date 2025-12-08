@@ -272,6 +272,17 @@ class AgentBrain:
                 if self.simulation_logger:
                     self.simulation_logger.log_observation(post)
 
+                # Check if post is actionable (has valid Graph ID)
+                # Threads Graph API ONLY accepts numeric IDs.
+                # Posts from external scrapers (Apify) usually have alphanumeric shortcodes (e.g. "DR9...").
+                # There is no public way to convert Shortcode -> Graph ID without specific permissions.
+                # Therefore, we treat shortcode posts as "Read-Only" (Market Research) - consume for memory but DO NOT reply.
+                if not post.id.isdigit():
+                    logger.info("skipping_reply_readonly_post", post_id=post.id, reason="shortcode_id_not_supported")
+                    print(f"   -> Skip: Read-only post (Shortcode ID)", flush=True)
+                    # We count this as a "successful" observation but not an interaction
+                    continue
+
                 # Try to interact
                 result, score, refinements = await self._interact_with_post(post)
                 results.append(result)
