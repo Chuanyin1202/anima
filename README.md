@@ -257,26 +257,12 @@ For detailed schema, see `src/agent/persona.py`.
   - Requires `OPENAI_API_KEY`, can persist output in deployment environment's `/app/data` volume
   - Custom feeds: `--feeds https://example.com/rss ...`
 
-## External Content Sources (Threads Toolkit / Apify)
+## External Content Sources (Threads Toolkit)
 
-### Persona Search Keywords
-- Add `interests.search_keywords` array in persona JSON to define search keywords
-- Example: `"search_keywords": ["AI", "LLM", "Agent", "Claude"]`
-- Each persona can have different keyword settings
+Anima uses the Threads Toolkit Apify Actor to fetch external posts for interaction.
 
-### Threads Toolkit (Polling Mode)
-- Enable: `THREADS_TOOLKIT_ENABLED=true` + `THREADS_TOOLKIT_URL`
-- Optional config: `THREADS_TOOLKIT_API_KEY`, `THREADS_TOOLKIT_QUERY`, `THREADS_TOOLKIT_MAX_AGE_HOURS`, `THREADS_TOOLKIT_MAX_ITEMS`
-- Accepts threads-toolkit JSON format (id/username/content/timestamp, etc.), converted to internal Post via `ingest_posts`
-- Auto-filters own account and outdated posts
+### Configuration
 
-### Apify (Polling Mode)
-- Enable: `APIFY_ENABLED=true` + `APIFY_API_TOKEN` + `APIFY_ACTOR_ID`
-- Search keyword: Explicitly set `APIFY_KEYWORD`
-- Or provide full input JSON: `APIFY_ACTOR_INPUT_JSON='{"action":"search","keyword":"AI","includePosts":true,...}'`
-- **Note**: No longer auto-fetches keywords from persona, must be explicitly set
-
-### Apify (Webhook Mode) - **Recommended**
 ```bash
 # Configure environment variables
 WEBHOOK_ENABLED=true
@@ -285,24 +271,27 @@ WEBHOOK_PORT=8080
 WEBHOOK_SECRET=your_secret_token
 
 APIFY_ENABLED=true
-APIFY_USE_WEBHOOK=true
 APIFY_API_TOKEN=your_apify_token
 
 # Start webhook server
 anima webhook
 ```
 
-**Webhook Endpoints**:
-- `POST /webhooks/apify` - Receive Apify webhook push
+### How It Works
+
+1. Configure a Threads Toolkit Actor on Apify with your search keywords
+2. Set up a webhook in the Actor to notify your Anima instance when runs complete
+3. When the Actor finishes, it pushes results to `POST /webhooks/apify`
+4. Anima processes the posts and triggers interaction cycles
+
+### Webhook Endpoint
+
+- `POST /webhooks/apify` - Receive Apify webhook notifications
 - Configure webhook URL in Apify Actor settings: `http://your-server:8080/webhooks/apify`
 - If `WEBHOOK_SECRET` is set, add to request header: `Authorization: Bearer your_secret_token`
 
-**Advantages**:
-- Real-time response: Triggers interaction immediately after Actor execution
-- Resource-efficient: No periodic polling needed
-- More accurate: Direct dataset retrieval
+### Webhook Payload Example
 
-**Webhook Payload Example**:
 ```json
 {
   "eventType": "ACTOR.RUN.SUCCEEDED",
@@ -314,10 +303,11 @@ anima webhook
 }
 ```
 
-### Notes
-- External sourcing fetches external sources first, then own reply threads, ensuring interaction isn't limited to own post threads
-- Webhook mode and polling mode are mutually exclusive (`APIFY_USE_WEBHOOK=true` disables polling)
-- Can use Threads Toolkit (polling) + Apify (Webhook) simultaneously
+### Advantages
+
+- Real-time response: Triggers interaction immediately after Actor execution
+- Resource-efficient: No periodic polling needed
+- Accurate: Direct dataset retrieval from Apify
 
 ## Scheduling (Built-in)
 - Interaction cycle: Every 4 hours by default

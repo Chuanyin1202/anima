@@ -30,7 +30,6 @@ from .observation import (
 )
 from .observation.report import OnePagerReport
 from .threads import MockThreadsClient, ThreadsClient
-from .threads.toolkit_provider import ThreadsToolkitProvider
 from .utils import get_settings
 
 # Configure structlog
@@ -132,28 +131,6 @@ async def create_agent_brain(
             persona_file=settings.persona_file,
         )
 
-    # External providers
-    external_providers = []
-    if (
-        getattr(settings, "threads_toolkit_enabled", False)
-        and settings.threads_toolkit_url
-        and not is_mock_mode
-    ):
-        try:
-            external_providers.append(
-                ThreadsToolkitProvider(
-                    api_url=settings.threads_toolkit_url,
-                    api_key=settings.threads_toolkit_api_key or None,
-                    query=settings.threads_toolkit_query or None,
-                    self_username=settings.threads_username or None,
-                    max_age_hours=settings.threads_toolkit_max_age_hours,
-                    max_items=settings.threads_toolkit_max_items,
-                )
-            )
-            logger.info("threads_toolkit_provider_enabled", url=settings.threads_toolkit_url)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("threads_toolkit_provider_init_failed", error=str(exc))
-
     # Create brain
     brain = AgentBrain(
         persona=persona,
@@ -166,7 +143,6 @@ async def create_agent_brain(
         reasoning_effort=settings.reasoning_effort,
         observation_mode=observation_mode,
         simulation_logger=simulation_logger,
-        external_providers=external_providers,
     )
 
     return brain
@@ -377,7 +353,7 @@ async def run_webhook_server(args: argparse.Namespace) -> int:
         )
 
         # Setup Apify webhook handler if enabled
-        if settings.apify_enabled and settings.apify_use_webhook:
+        if settings.apify_enabled:
             if not settings.apify_api_token:
                 logger.error("apify_webhook_no_token", msg="APIFY_API_TOKEN required for webhook mode")
                 return 1

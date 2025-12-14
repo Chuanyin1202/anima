@@ -3,8 +3,6 @@
 from .client import ThreadsClient
 from .mock_client import MockThreadsClient
 from .models import MediaType, Post, Reply, User
-from .providers import ExternalPostProvider
-from .toolkit_provider import ThreadsToolkitProvider
 
 __all__ = [
     "ThreadsClient",
@@ -13,6 +11,4 @@ __all__ = [
     "Reply",
     "User",
     "MediaType",
-    "ExternalPostProvider",
-    "ThreadsToolkitProvider",
 ]
