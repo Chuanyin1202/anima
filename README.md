@@ -1,109 +1,111 @@
 # Anima 🤖
 
-具備持久記憶、人格一致性與身份識別的社群 AI Agent，支援 Threads/MCP 本地對話與模擬觀察模式。
+English | [繁體中文](README.zh-TW.md)
 
-## 特色
+A social AI agent with persistent memory, persona consistency, and identity recognition, supporting Threads/MCP local conversations and simulation observation mode.
 
-- **持久記憶**：Mem0 三層記憶（情節/語義/反思），並分離 agent/user scope，確保對話者與小光的內容不混淆
-- **人格一致性**：借鏡 TinyTroupe 的 persona schema，產生/校驗回覆，支援 Adherence 評分與原因追蹤
-- **反思機制**：借鏡 Generative Agents，定期生成高層次洞見
-- **身份識別**：MCP 模式可「我是/我叫」或 `anima_set_user` 指定身份，記憶會標記 participant_xxx
-- **平台無關**：CLI/daemon/MCP 模式並行，易於接到其他平台
-- **可自訂人格**：透過 JSON 定義角色，支援 AI 簽名、emoji 控制等細節
-- **觀察與報表**：模擬/真實運行皆有日誌，一頁報表追蹤品質與健康度
+## Features
 
-## 架構
+- **Persistent Memory**: Mem0 three-layer memory (episodic/semantic/reflective) with agent/user scope separation to prevent memory contamination
+- **Persona Consistency**: Inspired by Microsoft TinyTroupe's persona schema, generates and validates responses with Adherence scoring and reason tracking
+- **Reflection Mechanism**: Inspired by Stanford Generative Agents, periodically generates high-level insights
+- **Identity Recognition**: MCP mode supports "I am/My name is" or `anima_set_user` to specify identity, with memory tagged as participant_xxx
+- **Platform Agnostic**: CLI/daemon/MCP/Webhook modes work in parallel, easy to integrate with other platforms
+- **Customizable Persona**: Define characters through JSON, supports AI signatures, emoji control, and more
+- **Observation & Reporting**: Both simulation and real runs have logs, with one-page reports tracking quality and health
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                          Anima Agent                             │
+│                          Anima Agent                            │
 ├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐           │
-│  │  Scheduler  │───│   Brain     │───│  Platform   │           │
-│  │  (Cron)     │   │  (決策引擎) │   │  Adapter    │           │
-│  └─────────────┘   └──────┬──────┘   └─────────────┘           │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐            │
+│  │  Scheduler  │───│   Brain     │───│  Platform   │            │
+│  │  (Cron)     │   │  (Decision) │   │  Adapter    │            │
+│  └─────────────┘   └──────┬──────┘   └─────────────┘            │
 │         ┌─────────────────┼─────────────────┐                   │
 │         ▼                 ▼                 ▼                   │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐           │
-│  │   Persona   │   │   Memory    │   │  Reflection │           │
-│  │   Engine    │   │   (Mem0)    │   │   Engine    │           │
-│  └─────────────┘   └─────────────┘   └─────────────┘           │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐            │
+│  │   Persona   │   │   Memory    │   │  Reflection │            │
+│  │   Engine    │   │   (Mem0)    │   │   Engine    │            │
+│  └─────────────┘   └─────────────┘   └─────────────┘            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 快速開始
+## Quick Start
 
-### 1. 安裝依賴
+### 1. Install Dependencies
 
 ```bash
-# 使用 pip
+# Using pip
 pip install -e .
 
-# 或使用 poetry
+# Or using poetry
 poetry install
 ```
 
-### 2. 設定環境變數
+### 2. Configure Environment Variables
 
-必填（可用 `.env`）：
+Required (can use `.env`):
 - `OPENAI_API_KEY`
-- `THREADS_ACCESS_TOKEN` / `THREADS_USER_ID`（使用 Threads 時）
-- `PERSONA_FILE`（預設 `personas/default.json`）
-- `QDRANT_URL` / `QDRANT_API_KEY`（雲端 Qdrant）或本地 `http://localhost:6333`
+- `THREADS_ACCESS_TOKEN` / `THREADS_USER_ID` (when using Threads)
+- `PERSONA_FILE` (default: `personas/default.json`)
+- `QDRANT_URL` / `QDRANT_API_KEY` (cloud Qdrant) or local `http://localhost:6333`
 
-可選：
-- `OPENAI_MODEL`（預設 `gpt-5-mini`，用於決策/驗證）
-- `OPENAI_MODEL_ADVANCED`（預設 `gpt-5.1`，用於生成回覆）
-- `REASONING_EFFORT`（預設 `low`，gpt-5 系列推理強度）
-- `MAX_COMPLETION_TOKENS`（預設 `500`）
-- `MAX_DAILY_POSTS` / `MAX_DAILY_REPLIES`（速率限制）
-- `LOG_LEVEL`（預設 `INFO`）
+Optional:
+- `OPENAI_MODEL` (default: `gpt-5-mini`, for decision/validation)
+- `OPENAI_MODEL_ADVANCED` (default: `gpt-5.1`, for response generation)
+- `REASONING_EFFORT` (default: `low`, reasoning intensity for gpt-5 series)
+- `MAX_COMPLETION_TOKENS` (default: `500`)
+- `MAX_DAILY_POSTS` / `MAX_DAILY_REPLIES` (rate limits)
+- `LOG_LEVEL` (default: `INFO`)
 
-### 3. 啟動本地服務（開發用，可選）
+### 3. Start Local Services (Optional, for Development)
 
 ```bash
 docker-compose up -d qdrant postgres
 ```
 
-### 4. 運行 CLI/Daemon
+### 4. Run CLI/Daemon
 
 ```bash
-# 執行一次互動循環
+# Execute one interaction cycle
 anima cycle
 
-# 發一則貼文
+# Post a message
 anima post --topic "AI"
 
-# 產生反思
+# Generate reflection
 anima reflect
 
-# 查看統計
+# View statistics
 anima stats
 
-# 以 daemon 模式運行（定時執行）
+# Run in daemon mode (scheduled execution)
 anima daemon
 
-# 觀察模式（模擬但不發文）
+# Observation mode (simulate without posting)
 anima observe --cycles 3
 
-# 觀察模式 + Mock（測試開發用，不需要真實 API）
+# Observation mode + Mock (for testing, no real API needed)
 anima observe --mock --cycles 3
 
-# 標註與分析
-anima review             # 互動式標註
-anima review --stats     # 查看統計
-anima analyze            # 產生分析報告
+# Annotation and analysis
+anima review             # Interactive annotation
+anima review --stats     # View statistics
+anima analyze            # Generate analysis report
 
-# 一頁報表
-anima report                              # 從觀察模式資料產生
-anima report --source data/real_logs      # 從真實運行資料產生
-anima report --html                       # 同時產生 HTML
-anima report --days 14                    # 指定時間範圍
+# One-page report
+anima report                              # Generate from observation mode data
+anima report --source data/real_logs      # Generate from real run data
+anima report --html                       # Generate HTML version too
+anima report --days 14                    # Specify time range
 ```
 
-### 5. MCP（Claude Desktop 等）
+### 5. MCP (Claude Desktop, etc.)
 
-1. 建立 `mcp-config.json`，套用專案絕對路徑（API key 等從專案 `.env` 讀取，不用在這裡塞）：
+1. Create `mcp-config.json` with absolute project path (API keys are read from project `.env`):
    ```json
    {
      "mcpServers": {
@@ -117,117 +119,117 @@ anima report --days 14                    # 指定時間範圍
      }
    }
    ```
-2. 在 MCP 客戶端載入。對話時可說「我是 Alex」或呼叫 `anima_set_user("Alex")` 讓記憶標記為 `participant_Alex`。
+2. Load in MCP client. During conversation, say "I am Alex" or call `anima_set_user("Alex")` to tag memory as `participant_Alex`.
 
-**可用 MCP 工具：**
+**Available MCP Tools:**
 
-| 工具 | 說明 |
-|------|------|
-| `anima_chat` | 與 Anima 對話（自動識別身份、記錄記憶） |
-| `anima_set_user` | 設定當前對話者的名字 |
-| `anima_search_memory` | 搜尋 Anima 的記憶 |
-| `anima_add_memory` | 新增一則記憶 |
-| `anima_get_recent_memories` | 取得最近的記憶 |
-| `anima_reflect` | 讓 Anima 進行反思 |
-| `anima_get_persona` | 取得人格資訊 |
-| `anima_memory_stats` | 取得記憶統計 |
+| Tool                     | Description                                                   |
+|--------------------------|---------------------------------------------------------------|
+| `anima_chat`             | Chat with Anima (auto identity recognition, memory recording) |
+| `anima_set_user`         | Set current conversation participant name                     |
+| `anima_search_memory`    | Search Anima's memory                                         |
+| `anima_add_memory`       | Add a memory entry                                            |
+| `anima_get_recent_memories` | Get recent memories                                        |
+| `anima_reflect`          | Trigger Anima reflection                                      |
+| `anima_get_persona`      | Get persona information                                       |
+| `anima_memory_stats`     | Get memory statistics                                         |
 
-## Threads API 說明
+## Threads API Guide
 
-### 權限需求
+### Permission Requirements
 
-| 權限 | 用途 | 需要審核 |
-|-----|------|---------|
-| `threads_basic` | 基本讀取/發文 | 否 |
-| `threads_keyword_search` | 搜尋公開貼文 | **是（需 Meta 審核）** |
+| Permission               | Purpose             | Requires Review                |
+|--------------------------|---------------------|--------------------------------|
+| `threads_basic`          | Basic read/post     | No                             |
+| `threads_keyword_search` | Search public posts | **Yes (Meta review required)** |
 
-### 互動模式
+### Interaction Modes
 
-Anima 支援兩種互動模式：
+Anima supports two interaction modes:
 
-1. **回覆模式（Reply Mode）** - 預設
-   - 使用 `get_replies_to_my_posts()` 獲取自己貼文的回覆
-   - 不需要特殊權限
-   - 適合大多數使用場景
+1. **Reply Mode (Default)**
+   - Uses `get_replies_to_my_posts()` to fetch replies to own posts
+   - No special permissions needed
+   - Suitable for most use cases
 
-2. **搜尋模式（Search Mode）** - 備用
-   - 使用 `search_posts()` 搜尋公開貼文
-   - **需要 `threads_keyword_search` 權限**（通常需要 1-2 週審核）
-   - 當回覆模式沒有內容時自動嘗試
+2. **Search Mode (Fallback)**
+   - Uses `search_posts()` to search public posts
+   - **Requires `threads_keyword_search` permission** (typically 1-2 weeks review)
+   - Automatically attempts when reply mode has no content
 
-### 速率限制
+### Rate Limits
 
-- 發佈貼文：250 篇/24 小時
-- 回覆貼文：1,000 條/24 小時
-- 搜尋查詢：2,200 次/24 小時（需要特殊權限）
+- Post creation: 250 posts/24 hours
+- Post replies: 1,000 replies/24 hours
+- Search queries: 2,200 queries/24 hours (requires special permission)
 
-## Mock 模式（測試開發用）
+## Mock Mode (For Testing & Development)
 
-Mock 模式允許在**沒有真實 API Token** 的情況下測試整個系統：
+Mock mode allows testing the entire system **without real API tokens**:
 
 ```bash
-# 觀察模式 + Mock
+# Observation mode + Mock
 anima observe --mock --cycles 3
 
-# 或通過環境變數啟用
+# Or enable via environment variable
 USE_MOCK_THREADS=true anima cycle
 ```
 
-**功能包含**：
-- 預設模擬貼文資料庫（各種話題）
-- 完整決策引擎測試
-- 回應生成與 Persona 一致性驗證
-- 記憶系統測試
+**Features**:
+- Pre-built mock post database (various topics)
+- Full decision engine testing
+- Response generation with persona consistency validation
+- Memory system testing
 
-**⚠️ 重要**：Mock 模式使用獨立的測試記憶庫（`anima_{agent}_test`），不會污染正式記憶。
+**⚠️ Important**: Mock mode uses a separate test memory collection (`anima_{agent}_test`) to avoid polluting production memory.
 
-**適用場景**：
-- 本地開發和調試
-- CI/CD 自動化測試
-- 沒有 API 權限時的快速原型
+**Use Cases**:
+- Local development and debugging
+- CI/CD automated testing
+- Quick prototyping without API permissions
 
-## 日誌與報表
+## Logging & Reporting
 
-### 資料儲存
+### Data Storage
 
-| 模式 | 資料目錄 | 說明 |
-|-----|---------|------|
-| 觀察模式 | `data/simulations/` | 模擬運行記錄 |
-| 真實模式 | `data/real_logs/` | 實際發文記錄 |
-| 報表輸出 | `data/reports/` | 一頁報表 |
+| Mode             | Data Directory       | Description             |
+|------------------|----------------------|-------------------------|
+| Observation mode | `data/simulations/`  | Simulation run records  |
+| Real mode        | `data/real_logs/`    | Actual posting records  |
+| Report output    | `data/reports/`      | One-page reports        |
 
-### 報表內容
+### Report Content
 
-一頁報表包含：
-- **Persona 摘要**：角色基本資訊
-- **記憶庫概況**：記憶統計
-- **決策與互動**：互動率、skip 理由分析
-- **互動健康度**：發送成功/失敗統計
-- **品質標註**：Adherence 分數與標註分布
-- **問題診斷**：低分案例與評分原因
-- **可操作建議**：自動生成的改進建議
+One-page reports include:
+- **Persona Summary**: Character basic information
+- **Memory Overview**: Memory statistics
+- **Decisions & Interactions**: Interaction rate, skip reason analysis
+- **Interaction Health**: Send success/failure statistics
+- **Quality Annotation**: Adherence scores and annotation distribution
+- **Problem Diagnosis**: Low-score cases and scoring reasons
+- **Actionable Suggestions**: Auto-generated improvement recommendations
 
-## 自訂人格
+## Customize Persona
 
-編輯 `personas/default.json` 或建立新的人格檔案：
+Edit `personas/default.json` or create a new persona file:
 
 ```json
 {
   "identity": {
-    "name": "你的角色名",
+    "name": "Your Character Name",
     "age": 25,
-    "occupation": "職業",
-    "background": "背景故事...",
-    "signature": "— AI 代班"
+    "occupation": "Occupation",
+    "background": "Background story...",
+    "signature": "— AI Assistant"
   },
   "personality": {
-    "traits": ["好奇", "幽默", "思考型"],
-    "values": ["真實", "創意"],
-    "communication_style": "輕鬆自然"
+    "traits": ["curious", "humorous", "thoughtful"],
+    "values": ["authenticity", "creativity"],
+    "communication_style": "casual and natural"
   },
   "speech_patterns": {
     "emoji_usage": "never",
-    "typical_phrases": ["蠻有趣", "這個厲害"]
+    "typical_phrases": ["that's interesting", "pretty cool"]
   },
   "interaction_rules": {
     "max_response_length": 280
@@ -235,48 +237,48 @@ USE_MOCK_THREADS=true anima cycle
 }
 ```
 
-**重點欄位：**
-- `signature`：回覆結尾簽名（如「— AI 代班」）
-- `emoji_usage`：設為 `"never"` 可讓回覆更像真人
-- `max_response_length`：限制回覆長度
+**Key Fields:**
+- `signature`: Reply ending signature (e.g., "— AI Assistant")
+- `emoji_usage`: Set to `"never"` for more human-like responses
+- `max_response_length`: Limit response length
 
-詳細 schema 請參考 `src/agent/persona.py`。
+For detailed schema, see `src/agent/persona.py`.
 
-## 記憶與身份設計（重點）
+## Memory & Identity Design (Key Concept)
 
-- 互動會拆成兩筆：`participant_*`（對話者內容，user scope）與 `agent_id`（小光回覆，agent scope），並複寫一份摘要到 agent scope，確保反思/統計可見對話者資訊。
-- `search/get_recent/stats` 會合併 agent/user 記憶；MCP 身份由「我是/我叫」或 `anima_set_user` 決定。
+- Interactions are split into two entries: `participant_*` (conversation partner content, user scope) and `agent_id` (Agent response, agent scope), with a summary copy to agent scope to ensure reflection/statistics can see conversation partner information.
+- `search/get_recent/stats` merge agent/user memories; MCP identity is determined by "I am/My name is" or `anima_set_user`.
 
-## 主動分享素材池（快速堆料）
+## Content Pool for Active Sharing (Quick Content)
 
-- 內建輕量抓取腳本：`python -m src.utils.harvest_ideas --limit 8`
-  - 預設來源：OpenAI Blog、Hugging Face Blog、Papers with Code、Hacker News AI（官方/RSS，無 Anthropic 官方 RSS）
-  - 會用 OpenAI 將素材轉成口語化中文短稿，輸出 Markdown + `data/ideas/index.jsonl`（含 pending/posted/expired 狀態與 Threads 貼文 ID）
-  - 需要設定 `OPENAI_API_KEY`，可在 Zeabur 的 `/app/data` volume 中持久化輸出
-  - 可自訂 feed：`--feeds https://example.com/rss ...`
+- Built-in lightweight harvesting script: `python -m src.utils.harvest_ideas --limit 8`
+  - Default sources: OpenAI Blog, Hugging Face Blog, Papers with Code, Hacker News AI (official/RSS, no Anthropic official RSS)
+  - Uses OpenAI to convert materials into colloquial Chinese drafts, outputs Markdown + `data/ideas/index.jsonl` (with pending/posted/expired status and Threads post ID)
+  - Requires `OPENAI_API_KEY`, can persist output in deployment environment's `/app/data` volume
+  - Custom feeds: `--feeds https://example.com/rss ...`
 
-## 海巡來源（Threads Toolkit / Apify）
+## External Content Sources (Threads Toolkit / Apify)
 
-### Persona 搜尋關鍵字
-- 在 persona JSON 中新增 `interests.search_keywords` 陣列定義搜尋關鍵字
-- 範例：`"search_keywords": ["AI", "LLM", "Agent", "Claude"]`
-- 每個 persona 可以有不同的關鍵字設定
+### Persona Search Keywords
+- Add `interests.search_keywords` array in persona JSON to define search keywords
+- Example: `"search_keywords": ["AI", "LLM", "Agent", "Claude"]`
+- Each persona can have different keyword settings
 
-### Threads Toolkit（輪詢模式）
-- 啟用：`THREADS_TOOLKIT_ENABLED=true` + `THREADS_TOOLKIT_URL`
-- 可選配置：`THREADS_TOOLKIT_API_KEY`、`THREADS_TOOLKIT_QUERY`、`THREADS_TOOLKIT_MAX_AGE_HOURS`、`THREADS_TOOLKIT_MAX_ITEMS`
-- 輸入採 threads-toolkit 的 JSON（id/username/content/timestamp 等），會經 `ingest_posts` 轉成內部 Post
-- 自動濾除自己帳號與過舊貼文
+### Threads Toolkit (Polling Mode)
+- Enable: `THREADS_TOOLKIT_ENABLED=true` + `THREADS_TOOLKIT_URL`
+- Optional config: `THREADS_TOOLKIT_API_KEY`, `THREADS_TOOLKIT_QUERY`, `THREADS_TOOLKIT_MAX_AGE_HOURS`, `THREADS_TOOLKIT_MAX_ITEMS`
+- Accepts threads-toolkit JSON format (id/username/content/timestamp, etc.), converted to internal Post via `ingest_posts`
+- Auto-filters own account and outdated posts
 
-### Apify（輪詢模式）
-- 啟用：`APIFY_ENABLED=true` + `APIFY_API_TOKEN` + `APIFY_ACTOR_ID`
-- 搜尋 keyword：顯式設定 `APIFY_KEYWORD`
-- 或直接給完整 input JSON：`APIFY_ACTOR_INPUT_JSON='{"action":"search","keyword":"AI","includePosts":true,...}'`
-- **注意**：不再自動從 persona 取關鍵字，必須明確設定
+### Apify (Polling Mode)
+- Enable: `APIFY_ENABLED=true` + `APIFY_API_TOKEN` + `APIFY_ACTOR_ID`
+- Search keyword: Explicitly set `APIFY_KEYWORD`
+- Or provide full input JSON: `APIFY_ACTOR_INPUT_JSON='{"action":"search","keyword":"AI","includePosts":true,...}'`
+- **Note**: No longer auto-fetches keywords from persona, must be explicitly set
 
-### Apify（Webhook 模式）- 推薦
+### Apify (Webhook Mode) - **Recommended**
 ```bash
-# 配置環境變數
+# Configure environment variables
 WEBHOOK_ENABLED=true
 WEBHOOK_HOST=0.0.0.0
 WEBHOOK_PORT=8080
@@ -286,21 +288,21 @@ APIFY_ENABLED=true
 APIFY_USE_WEBHOOK=true
 APIFY_API_TOKEN=your_apify_token
 
-# 啟動 webhook 伺服器
+# Start webhook server
 anima webhook
 ```
 
-**Webhook 端點**：
-- `POST /webhooks/apify` - 接收 Apify webhook 推送
-- 需要在 Apify Actor 設定中配置 webhook URL：`http://your-server:8080/webhooks/apify`
-- 如果設定了 `WEBHOOK_SECRET`，需在請求 header 加入：`Authorization: Bearer your_secret_token`
+**Webhook Endpoints**:
+- `POST /webhooks/apify` - Receive Apify webhook push
+- Configure webhook URL in Apify Actor settings: `http://your-server:8080/webhooks/apify`
+- If `WEBHOOK_SECRET` is set, add to request header: `Authorization: Bearer your_secret_token`
 
-**優勢**：
-- 即時反應：Actor 執行完立即觸發互動
-- 節省資源：不需要定期輪詢
-- 更準確：直接從 dataset 抓取資料
+**Advantages**:
+- Real-time response: Triggers interaction immediately after Actor execution
+- Resource-efficient: No periodic polling needed
+- More accurate: Direct dataset retrieval
 
-**Webhook Payload 範例**：
+**Webhook Payload Example**:
 ```json
 {
   "eventType": "ACTOR.RUN.SUCCEEDED",
@@ -312,24 +314,26 @@ anima webhook
 }
 ```
 
-### 注意事項
-- 外部海巡會先抓外部來源，再抓自己的回覆區，確保互動不限於自身貼文串
-- Webhook 模式與輪詢模式互斥（`APIFY_USE_WEBHOOK=true` 時會停用輪詢）
-- 可同時使用 Threads Toolkit（輪詢）+ Apify（Webhook）
+### Notes
+- External sourcing fetches external sources first, then own reply threads, ensuring interaction isn't limited to own post threads
+- Webhook mode and polling mode are mutually exclusive (`APIFY_USE_WEBHOOK=true` disables polling)
+- Can use Threads Toolkit (polling) + Apify (Webhook) simultaneously
 
-## 排程（已內建）
-- 互動循環：預設每 4 小時
-- 素材抓取：每 4 小時
-- 主動發文：每日 10:00 從 pending ideas 自動發一則（發佈前會做重複檢查，發後標記 posted）
-- 素材過期：每日 03:00 將超過 7 天的 pending 標記 expired
-- 反思：每日 23:00
+## Scheduling (Built-in)
+- Interaction cycle: Every 4 hours by default
+- Content harvesting: Every 4 hours
+- Active posting: Daily at 10:00, auto-posts one item from pending ideas (checks for duplicates, marks as posted)
+- Content expiration: Daily at 03:00, marks pending ideas older than 7 days as expired
+- Reflection: Daily at 23:00
 
-## 授權
+## License
 
-MIT License
+Apache License 2.0
 
-## 致謝
+See [LICENSE](LICENSE) file for details.
 
-- [Mem0](https://github.com/mem0ai/mem0) - 記憶系統
-- [TinyTroupe](https://github.com/microsoft/TinyTroupe) - 人格框架概念
-- [Generative Agents](https://github.com/joonspk-research/generative_agents) - 反思機制概念
+## Acknowledgments
+
+- [Mem0](https://github.com/mem0ai/mem0) - Memory system
+- [Microsoft TinyTroupe](https://github.com/microsoft/TinyTroupe) - Persona framework concept
+- [Stanford Generative Agents](https://github.com/joonspk-research/generative_agents) - Reflection mechanism concept
