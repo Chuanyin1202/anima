@@ -338,8 +338,20 @@ async def run_webhook_server(args: argparse.Namespace) -> int:
     settings = get_settings()
     brain: AgentBrain | None = None
 
+    # Validate configuration before expensive initialization
     if not settings.webhook_enabled:
         logger.warning("webhook_disabled", msg="Set WEBHOOK_ENABLED=true to enable webhook server")
+        return 1
+
+    if not settings.apify_enabled:
+        logger.error(
+            "no_webhook_handlers",
+            msg="No webhook handlers registered. Enable Apify webhook via APIFY_ENABLED=true.",
+        )
+        return 1
+
+    if not settings.apify_api_token:
+        logger.error("apify_webhook_no_token", msg="APIFY_API_TOKEN required for webhook mode")
         return 1
 
     try:
@@ -352,29 +364,19 @@ async def run_webhook_server(args: argparse.Namespace) -> int:
             webhook_secret=settings.webhook_secret or None,
         )
 
-        # Setup Apify webhook handler if enabled
-        if settings.apify_enabled:
-            if not settings.apify_api_token:
-                logger.error("apify_webhook_no_token", msg="APIFY_API_TOKEN required for webhook mode")
-                return 1
+        # Setup Apify webhook handler
+        apify_handler = ApifyWebhookHandler(
+            brain=brain,
+            self_username=settings.threads_username,
+            max_age_hours=settings.apify_max_age_hours,
+            max_items=settings.apify_max_items,
+            apify_api_token=settings.apify_api_token,
+            max_retries=3,
+            retry_delay_base=2.0,
+        )
 
-            apify_handler = ApifyWebhookHandler(
-                brain=brain,
-                self_username=settings.threads_username,
-                max_age_hours=settings.apify_max_age_hours,
-                max_items=settings.apify_max_items,
-                apify_api_token=settings.apify_api_token,
-                max_retries=3,
-                retry_delay_base=2.0,
-            )
-
-            server.register_handler("apify", apify_handler.handle_webhook)
-            logger.info("apify_webhook_registered", path="/webhooks/apify")
-        else:
-            logger.warning(
-                "no_webhook_handlers",
-                msg="No webhook handlers registered. Set APIFY_ENABLED=true to enable Threads Toolkit integration.",
-            )
+        server.register_handler("apify", apify_handler.handle_webhook)
+        logger.info("apify_webhook_registered", path="/webhooks/apify")
 
         # Start server
         logger.info("webhook_server_starting", host=settings.webhook_host, port=settings.webhook_port)

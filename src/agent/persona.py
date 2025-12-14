@@ -118,7 +118,7 @@ class Interests(BaseModel):
     )
     search_keywords: list[str] = Field(
         default_factory=list,
-        description="Keywords for external post search (e.g., Apify, Threads Toolkit)",
+        description="Keywords for content discovery",
     )
 
 

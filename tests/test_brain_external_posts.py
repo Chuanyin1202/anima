@@ -71,7 +71,6 @@ async def test_run_cycle_with_external_posts():
         openai_client=MagicMock(aclose=AsyncMock()),
         observation_mode=True,
         simulation_logger=None,
-        external_providers=[],
     )
 
     # Swap heavy components with stubs
