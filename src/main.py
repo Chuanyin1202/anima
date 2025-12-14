@@ -370,6 +370,11 @@ async def run_webhook_server(args: argparse.Namespace) -> int:
 
             server.register_handler("apify", apify_handler.handle_webhook)
             logger.info("apify_webhook_registered", path="/webhooks/apify")
+        else:
+            logger.warning(
+                "no_webhook_handlers",
+                msg="No webhook handlers registered. Set APIFY_ENABLED=true to enable Threads Toolkit integration.",
+            )
 
         # Start server
         logger.info("webhook_server_starting", host=settings.webhook_host, port=settings.webhook_port)
