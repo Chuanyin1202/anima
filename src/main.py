@@ -425,6 +425,7 @@ async def async_main(args: argparse.Namespace) -> int:
     # Check for --mock flag or settings
     use_mock = getattr(args, "mock", False) or settings.use_mock_threads
 
+    brain = None
     try:
         brain = await create_agent_brain(settings=settings, use_mock=use_mock)
 
@@ -459,15 +460,16 @@ async def async_main(args: argparse.Namespace) -> int:
         logger.exception("unexpected_error", error=str(e))
         return 1
     finally:
-        # End session for real mode logging
-        if brain.simulation_logger:
-            brain.simulation_logger.end_session()
+        if brain:
+            # End session for real mode logging
+            if brain.simulation_logger:
+                brain.simulation_logger.end_session()
 
-        # Ensure underlying clients are closed when leaving
-        try:
-            await brain.close()
-        except Exception:
-            logger.debug("brain_close_failed", exc_info=True)
+            # Ensure underlying clients are closed when leaving
+            try:
+                await brain.close()
+            except Exception:
+                logger.debug("brain_close_failed", exc_info=True)
 
 
 def main() -> int:

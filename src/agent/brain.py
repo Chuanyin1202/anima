@@ -592,7 +592,15 @@ class AgentBrain:
                         post_id=target_post_id,
                         username=post.username,
                     )
-                    return None
+                    return (
+                        InteractionResult(
+                            success=False,
+                            post_id=post.id,
+                            reason="reply_target_deleted",
+                        ),
+                        adherence_score,
+                        refinement_attempts,
+                    )
                 else:
                     # Re-raise other errors (5xx, network, etc.)
                     raise
