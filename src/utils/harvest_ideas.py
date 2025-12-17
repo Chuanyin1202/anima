@@ -29,21 +29,15 @@ from .ideas import upsert_ideas
 
 
 # Default feeds (prefer官方/穩定來源)
+# 精選來源：低重疊、訊雜比高
 DEFAULT_FEEDS = [
-    # 官方 AI 公司 Blog
+    # 官方／研究團隊（必留）
     "https://openai.com/blog/rss.xml",
     "https://huggingface.co/blog/feed.xml",
     "https://deepmind.google/blog/rss.xml",
-    "https://blog.google/technology/ai/rss",
-    # 科技媒體 AI 版
+    # 媒體（單一主來源）
     "https://techcrunch.com/category/artificial-intelligence/feed/",
-    "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
-    "https://arstechnica.com/ai/feed",
-    "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
-    # 開發者社群
-    "https://github.blog/feed/",
-    "https://dev.to/feed/tag/ai",
-    # Hacker News AI
+    # 社群／聚合（擇一保留社群聲量）
     "https://hnrss.org/newest?q=AI",
 ]
 
@@ -134,33 +128,52 @@ async def summarize_entries(
     return summaries
 
 
-def diversify_entries(entries: list[dict], per_source_limit: int = 3) -> list[dict]:
-    """Mix entries so a single feed won't dominate the final set."""
+def round_robin_entries(
+    entries: list[dict],
+    per_source_limit: int = 2,
+    global_limit: int = 10,
+) -> list[dict]:
+    """
+    Round-robin mix to避免單一來源霸榜：
+    - 每來源最多 per_source_limit
+    - 依來源輪流取第 1 輪、第 2 輪…
+    - 總數不超過 global_limit
+    """
     by_source: dict[str, list[dict]] = {}
     for e in entries:
         key = e.get("feed") or "unknown"
         by_source.setdefault(key, []).append(e)
 
-    # Per-source trim
-    trimmed: list[dict] = []
+    # 各來源按時間排序並截斷
     for source, items in by_source.items():
-        # items 已按時間排序，取最前面 per_source_limit
-        trimmed.extend(items[:per_source_limit])
+        items.sort(key=lambda e: e.get("published_ts") or 0, reverse=True)
+        by_source[source] = items[:per_source_limit]
 
-    # Global sort by published_ts desc
-    trimmed.sort(key=lambda e: e.get("published_ts") or 0, reverse=True)
-    return trimmed
+    picked: list[dict] = []
+    for round_idx in range(per_source_limit):
+        for source, items in by_source.items():
+            if len(picked) >= global_limit:
+                return picked
+            if len(items) > round_idx:
+                picked.append(items[round_idx])
+    return picked
 
 
-async def main(feeds: Optional[list[str]] = None, limit: int = 8) -> int:
+async def main(
+    feeds: Optional[list[str]] = None,
+    limit: int = 10,
+    since_days: int = 3,
+) -> int:
     # If no params provided, parse CLI args
     if feeds is None:
         parser = argparse.ArgumentParser(description="Harvest AI ideas into data/ideas.")
         parser.add_argument("--feeds", nargs="*", default=["default"], help="Feed URLs or 'default'")
         parser.add_argument("--limit", type=int, default=8, help="Max items to keep")
+        parser.add_argument("--since-days", type=int, default=3, help="Only keep items within N days")
         args = parser.parse_args()
         feeds = DEFAULT_FEEDS if args.feeds == ["default"] else args.feeds
         limit = args.limit
+        since_days = args.since_days
 
     settings = get_settings()
     client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -178,7 +191,14 @@ async def main(feeds: Optional[list[str]] = None, limit: int = 8) -> int:
 
     unique_entries = dedupe_entries(all_entries)
     unique_entries.sort(key=lambda e: e.get("published_ts") or 0, reverse=True)
-    unique_entries = diversify_entries(unique_entries, per_source_limit=3)
+    # 只保留近 N 天的項目，避免初次抓取過多舊文
+    cutoff_ts = int(time.time()) - since_days * 24 * 3600
+    unique_entries = [e for e in unique_entries if (e.get("published_ts") or 0) >= cutoff_ts]
+    unique_entries = round_robin_entries(
+        unique_entries,
+        per_source_limit=2,
+        global_limit=limit,
+    )
 
     # Summarize
     summarized_items = await summarize_entries(
