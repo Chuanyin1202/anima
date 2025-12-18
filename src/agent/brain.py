@@ -706,11 +706,12 @@ class AgentBrain:
 
 {memory_context}
 
-Guidelines:
-- Be authentic to your personality
-- Share a thought, observation, or question
-- Keep it under {self.persona.interaction_rules.max_response_length} characters
-- Don't be preachy or generic
+Guidelines (depth > fluff):
+- Structure it in 3 parts (2–3 sentences total): 1) 核心觀察/新意 2) 影響或風險 + 簡短驗證方式/指標 3) 下一步或提問（具體可行）
+- Tone: 專業但口語，避免空泛形容詞或過度讚美
+- Length: 120-180 characters; keep under {self.persona.interaction_rules.max_response_length} characters
+- If citing a source, mention如何驗證/觀察，而不是只重述
+- Be authentic to your personality; don't be preachy or generic
 """
 
         kwargs = {
