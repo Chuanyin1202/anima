@@ -712,14 +712,14 @@ class AgentBrain:
 
 {memory_context}
 
-Guidelines (depth > fluff):
-- Structure it in 3 parts (2–3 sentences total): 1) 核心觀察/新意 2) 影響或風險 + 簡短驗證方式/指標 3) 下一步或提問（具體可行）
-- Tone: 專業但口語，避免空泛形容詞或過度讚美
-- Length: 120-180 characters; keep under {self.persona.interaction_rules.max_response_length} characters
-- If citing a source, mention如何驗證/觀察，而不是只重述
-- Be authentic to your personality; don't be preachy or generic
-- Avoid sounding like a news recap—add your own POV or question, speak in first person
-- If the topic comes from a link/summary, focus on ONE key insight, not a bullet list
+Guidelines:
+- Be authentic to your personality
+- Go beyond describing - share your take: what's interesting, what's the catch, or what you're curious about
+- Point out a specific detail, risk, or practical implication
+- Length: 250-350 Chinese characters (字元), develop your point with substance
+- Don't sound like a news recap - use first person, share your actual opinion
+- End with your own view or feeling, not a question to the reader
+- No preaching, no platitudes (e.g. "this is an opportunity", "that's the key")
 """
 
         kwargs = {
