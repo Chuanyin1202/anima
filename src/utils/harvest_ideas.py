@@ -149,9 +149,21 @@ def round_robin_entries(
         items.sort(key=lambda e: e.get("published_ts") or 0, reverse=True)
         by_source[source] = items[:per_source_limit]
 
+    # 來源迭代順序：以 DEFAULT_FEEDS 為主，其他來源排在後面（字母序）
+    ordered_sources = []
+    seen = set()
+    for src in DEFAULT_FEEDS:
+        if src in by_source:
+            ordered_sources.append(src)
+            seen.add(src)
+    for src in sorted(by_source.keys()):
+        if src not in seen:
+            ordered_sources.append(src)
+
     picked: list[dict] = []
     for round_idx in range(per_source_limit):
-        for source, items in by_source.items():
+        for source in ordered_sources:
+            items = by_source[source]
             if len(picked) >= global_limit:
                 return picked
             if len(items) > round_idx:
@@ -168,7 +180,7 @@ async def main(
     if feeds is None:
         parser = argparse.ArgumentParser(description="Harvest AI ideas into data/ideas.")
         parser.add_argument("--feeds", nargs="*", default=["default"], help="Feed URLs or 'default'")
-        parser.add_argument("--limit", type=int, default=8, help="Max items to keep")
+        parser.add_argument("--limit", type=int, default=10, help="Max items to keep")
         parser.add_argument("--since-days", type=int, default=3, help="Only keep items within N days")
         args = parser.parse_args()
         feeds = DEFAULT_FEEDS if args.feeds == ["default"] else args.feeds
