@@ -15,7 +15,8 @@ COPY src/ ./src/
 COPY personas/ ./personas/
 
 # Install Python dependencies
-RUN pip install --no-cache-dir .
+# Explicitly install uvicorn to ensure the binary exists in PATH for web console start command
+RUN pip install --no-cache-dir uvicorn && pip install --no-cache-dir .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
