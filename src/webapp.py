@@ -155,41 +155,41 @@ async def list_ideas():
             f"</form>"
             f"</td></tr>"
         )
-    body = """
+    rows_html = "".join(rows or ["<tr><td colspan='3'>沒有 pending ideas</td></tr>"])
+    body = f"""
     <p class="muted">顯示 pending ideas，可手動發佈；自動排程仍由後台 scheduler 負責。</p>
     <table>
       <thead><tr><th>Idea</th><th>Created</th><th>Action</th></tr></thead>
-      <tbody>{rows}</tbody>
+      <tbody>{rows_html}</tbody>
     </table>
     <script>
-      document.querySelectorAll('.post-form').forEach(form => {
-        form.addEventListener('submit', async (e) => {
+      document.querySelectorAll('.post-form').forEach(form => {{
+        form.addEventListener('submit', async (e) => {{
           e.preventDefault();
           const btn = form.querySelector('button');
           btn.disabled = true;
           btn.textContent = '發佈中...';
-          try {
-            const resp = await fetch(form.action, { method: 'POST' });
+          try {{
+            const resp = await fetch(form.action, {{ method: 'POST' }});
             const text = await resp.text();
             let msg = text;
-            try { msg = JSON.parse(text); } catch (err) {}
-            if (resp.ok) {
+            try {{ msg = JSON.parse(text); }} catch (err) {{}}
+            if (resp.ok) {{
               alert('發佈成功：' + (msg.post_id || ''));
-              // reload to refresh list
               window.location.reload();
-            } else {
+            }} else {{
               alert('發佈失敗：' + (msg.detail || text));
-            }
-          } catch (err) {
+            }}
+          }} catch (err) {{
             alert('發佈失敗：' + err);
-          } finally {
+          }} finally {{
             btn.disabled = false;
             btn.textContent = '發佈';
-          }
-        });
-      });
+          }}
+        }});
+      }});
     </script>
-    """.format(rows="".join(rows or ["<tr><td colspan='3'>沒有 pending ideas</td></tr>"]))
+    """
     return _render_html("Anima Console - Ideas", body)
 
 
