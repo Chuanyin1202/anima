@@ -712,6 +712,8 @@ Guidelines (depth > fluff):
 - Length: 120-180 characters; keep under {self.persona.interaction_rules.max_response_length} characters
 - If citing a source, mention如何驗證/觀察，而不是只重述
 - Be authentic to your personality; don't be preachy or generic
+- Avoid sounding like a news recap—add your own POV or question, speak in first person
+- If the topic comes from a link/summary, focus on ONE key insight, not a bullet list
 """
 
         kwargs = {
