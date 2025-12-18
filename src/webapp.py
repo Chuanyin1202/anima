@@ -22,6 +22,7 @@ from typing import Optional
 import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
+import httpx
 
 from .agent.scheduler import AgentScheduler
 from .main import create_agent_brain
@@ -37,12 +38,13 @@ app = FastAPI(title="Anima Console")
 brain = None
 scheduler: Optional[AgentScheduler] = None
 threads_client = None
+me_id: Optional[str] = None
 
 
 @app.on_event("startup")
 async def startup_event() -> None:
     """Initialize brain, threads client, and scheduler."""
-    global brain, scheduler, threads_client
+    global brain, scheduler, threads_client, me_id
     settings = get_settings()
 
     # Create brain (observation_mode False for real runs)
@@ -62,6 +64,19 @@ async def startup_event() -> None:
         await brain._ensure_clients_ready()  # noqa: SLF001 - internal but safe here
     except Exception:
         logger.warning("brain_client_init_failed", exc_info=True)
+
+    # Resolve /me for quick mismatch diagnostics
+    try:
+        me_resp = await threads_client._request("GET", "me")  # noqa: SLF001
+        me_id = me_resp.get("id")
+        if me_id and settings.threads_user_id and str(me_id) != str(settings.threads_user_id):
+            logger.warning(
+                "threads_user_mismatch",
+                token_me_id=me_id,
+                configured_user_id=settings.threads_user_id,
+            )
+    except Exception:
+        logger.warning("threads_me_check_failed", exc_info=True)
 
     # Start scheduler
     scheduler = AgentScheduler(brain)
@@ -96,6 +111,7 @@ async def healthz():
         "status": "ok",
         "scheduler_running": scheduler is not None,
         "pending_ideas": len([i for i in read_index() if i.status == "pending"]),
+        "threads_me_id": me_id,
     }
 
 
@@ -134,7 +150,7 @@ async def list_ideas():
             f"<div class='muted'>來源: {idea.link or idea.source}</div></td>"
             f"<td class='muted'>{idea.created_at}</td>"
             f"<td>"
-            f"<form method='post' action='/ideas/{idea.id}/post'>"
+            f"<form class='post-form' data-idea='{idea.id}' method='post' action='/ideas/{idea.id}/post'>"
             f"<button type='submit'>發佈</button>"
             f"</form>"
             f"</td></tr>"
@@ -145,6 +161,34 @@ async def list_ideas():
       <thead><tr><th>Idea</th><th>Created</th><th>Action</th></tr></thead>
       <tbody>{rows}</tbody>
     </table>
+    <script>
+      document.querySelectorAll('.post-form').forEach(form => {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const btn = form.querySelector('button');
+          btn.disabled = true;
+          btn.textContent = '發佈中...';
+          try {
+            const resp = await fetch(form.action, { method: 'POST' });
+            const text = await resp.text();
+            let msg = text;
+            try { msg = JSON.parse(text); } catch (err) {}
+            if (resp.ok) {
+              alert('發佈成功：' + (msg.post_id || ''));
+              // reload to refresh list
+              window.location.reload();
+            } else {
+              alert('發佈失敗：' + (msg.detail || text));
+            }
+          } catch (err) {
+            alert('發佈失敗：' + err);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = '發佈';
+          }
+        });
+      });
+    </script>
     """.format(rows="".join(rows or ["<tr><td colspan='3'>沒有 pending ideas</td></tr>"]))
     return _render_html("Anima Console - Ideas", body)
 
@@ -159,10 +203,30 @@ async def post_idea(idea_id: str):
 
     # Create post
     try:
-        post_id = await brain.create_original_post(topic=idea.summary)
+        post_id = await brain.create_original_post(topic=idea.summary, raise_on_error=True)
     except Exception as exc:  # noqa: BLE001
         logger.error("manual_post_failed", idea_id=idea_id, error=str(exc), exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Posting failed: {exc}")
+        detail = str(exc)
+        # Unwrap Threads API error for clearer UX
+        try:
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                err = exc.response.json().get("error", {})
+                user_msg = err.get("error_user_msg")
+                user_title = err.get("error_user_title")
+                code = err.get("code")
+                subcode = err.get("error_subcode")
+                message = err.get("message")
+                detail_parts = [
+                    f"Threads API error code {code}",
+                    f"subcode {subcode}" if subcode else None,
+                    message,
+                    user_title,
+                    user_msg,
+                ]
+                detail = " | ".join([p for p in detail_parts if p])
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail=f"Posting failed: {detail}")
 
     if post_id:
         mark_posted(idea_id=idea.id, post_id=post_id)

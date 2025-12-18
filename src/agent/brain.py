@@ -668,11 +668,17 @@ class AgentBrain:
                 refinement_attempts,
             )
 
-    async def create_original_post(self, topic: Optional[str] = None) -> Optional[str]:
+    async def create_original_post(
+        self,
+        topic: Optional[str] = None,
+        *,
+        raise_on_error: bool = False,
+    ) -> Optional[str]:
         """Create an original post (not a reply).
 
         Args:
             topic: Optional topic to post about. If None, chooses from interests.
+            raise_on_error: If True, re-raise publish errors to caller for UX feedback.
 
         Returns:
             The post ID if successful, None otherwise.
@@ -764,6 +770,8 @@ Guidelines (depth > fluff):
 
         except Exception as e:
             logger.error("original_post_failed", error=str(e))
+            if raise_on_error:
+                raise
             return None
 
     def get_stats(self) -> dict:
