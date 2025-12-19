@@ -346,6 +346,22 @@ th { background: var(--gray-50); font-weight: 600; font-size: 0.875rem; color: v
 # =============================================================================
 
 JS_SCRIPTS = """
+// Format ISO timestamp to local time (YYYY-MM-DD HH:MM:SS)
+function formatLocalTime(isoString) {
+    if (!isoString) return '';
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
+    // Use sv-SE locale for YYYY-MM-DD HH:MM:SS format
+    return d.toLocaleString('sv-SE').replace('T', ' ').slice(0, 19);
+}
+
+// Auto-convert all .local-time elements on page load
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.local-time').forEach(el => {
+        el.textContent = formatLocalTime(el.dataset.time);
+    });
+});
+
 // Global state
 let isPosting = false;
 let currentPreviewIdeaId = null;
@@ -825,7 +841,7 @@ async def api_memories(type: Optional[str] = None, limit: int = 30):
                 "id": m.id,
                 "content": m.content,
                 "memory_type": m.memory_type.value,
-                "created_at": str(m.created_at)[:19],
+                "created_at": m.created_at.isoformat() if hasattr(m.created_at, 'isoformat') else str(m.created_at),
                 "metadata": m.metadata,
             }
             for m in memories
@@ -903,7 +919,7 @@ async def dashboard():
               <div class="card-title">{title_safe}</div>
               <div class="card-content">{summary_preview}</div>
               <div class="card-meta">
-                <span class="muted">{idea.created_at}</span>
+                <span class="muted local-time" data-time="{idea.created_at}">{idea.created_at}</span>
                 <a href="{idea.link or '#'}" target="_blank" class="muted" style="text-decoration:none;">
                   {source_display}
                 </a>
@@ -959,7 +975,7 @@ async def recent_responses():
         rows.append(f"""
         <tr>
           <td>{badge}</td>
-          <td class="muted">{rec.get('timestamp', '')[:19]}</td>
+          <td class="muted local-time" data-time="{rec.get('timestamp', '')}">{rec.get('timestamp', '')[:19]}</td>
           <td>
             <div class="muted">{original}{'...' if len(original) >= 140 else ''}</div>
             <div>{response}{'...' if len(response) >= 200 else ''}</div>
@@ -1016,7 +1032,7 @@ async def recent_posts():
         rows.append(f"""
         <tr>
           <td>{badge} {source_badge}</td>
-          <td class="muted">{rec.get('timestamp', '')[:19]}</td>
+          <td class="muted local-time" data-time="{rec.get('timestamp', '')}">{rec.get('timestamp', '')[:19]}</td>
           <td>
             <div class="muted">主題: {topic}</div>
             <div>{content}{'...' if len(content) >= 200 else ''}</div>
@@ -1138,7 +1154,7 @@ async def memories_page():
           return `
             <tr>
               <td><span class="badge ${badgeClass}">${typeLabel}</span></td>
-              <td class="muted">${m.created_at}</td>
+              <td class="muted">${formatLocalTime(m.created_at)}</td>
               <td>
                 <div>${content}</div>
                 ${author || about ? `<div class="muted">${[author, about].filter(Boolean).join(' · ')}</div>` : ''}
