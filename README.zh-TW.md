@@ -6,7 +6,7 @@
 
 ## 特色
 
-- **持久記憶**：Mem0 三層記憶（情節/語義/反思），並分離 agent/user scope，確保對話者與小光的內容不混淆
+- **持久記憶**：Mem0 三層記憶（情節/語義/反思），並分離 agent/user scope，確保對話者與 Agent 的內容不混淆
 - **人格一致性**：借鏡 TinyTroupe 的 persona schema，產生/校驗回覆，支援 Adherence 評分與原因追蹤
 - **反思機制**：借鏡 Generative Agents，定期生成高層次洞見
 - **身份識別**：MCP 模式可「我是/我叫」或 `anima_set_user` 指定身份，記憶會標記 participant_xxx
@@ -246,7 +246,7 @@ USE_MOCK_THREADS=true anima cycle
 
 ## 記憶與身份設計（重點）
 
-- 互動會拆成兩筆：`participant_*`（對話者內容，user scope）與 `agent_id`（小光回覆，agent scope），並複寫一份摘要到 agent scope，確保反思/統計可見對話者資訊。
+- 互動會拆成兩筆：`participant_*`（對話者內容，user scope）與 `agent_id`（Agent 回覆，agent scope），並複寫一份摘要到 agent scope，確保反思/統計可見對話者資訊。
 - `search/get_recent/stats` 會合併 agent/user 記憶；MCP 身份由「我是/我叫」或 `anima_set_user` 決定。
 
 ## 主動分享素材池（快速堆料）
