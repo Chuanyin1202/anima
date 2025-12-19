@@ -77,7 +77,16 @@ async def create_agent_brain(
         persona_path = Path(__file__).parent.parent / settings.persona_file
 
     if not persona_path.exists():
-        raise FileNotFoundError(f"Persona file not found: {settings.persona_file}")
+        # List available persona files for helpful error message
+        personas_dir = Path(__file__).parent.parent / "personas"
+        available = []
+        if personas_dir.exists():
+            available = [f.name for f in personas_dir.glob("*.json")]
+        raise FileNotFoundError(
+            f"Persona file not found: {settings.persona_file}\n"
+            f"Available personas: {available if available else 'none found'}\n"
+            f"Hint: Update PERSONA_FILE environment variable to an existing file."
+        )
 
     persona = Persona.from_file(persona_path)
     logger.info("persona_loaded", name=persona.identity.name)

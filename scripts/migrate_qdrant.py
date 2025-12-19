@@ -7,8 +7,19 @@ to the new one, and updates metadata fields.
 Changes:
 1. Copy collection: anima_AnimaAgent -> anima_Anima
 2. Update metadata: about="xiao_guang" -> about="self"
+
+WARNING:
+- This script modifies production data. BACKUP FIRST!
+- The old collection is NOT deleted (kept as backup).
+- Use --dry-run to preview changes without modifying data.
+
+Usage:
+    python scripts/migrate_qdrant.py                    # Interactive mode
+    python scripts/migrate_qdrant.py --dry-run          # Preview only
+    python scripts/migrate_qdrant.py --source X --target Y  # Custom collections
 """
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -40,6 +51,7 @@ def migrate_collection(
     source: str,
     target: str,
     batch_size: int = 100,
+    dry_run: bool = False,
 ) -> dict:
     """Migrate all points from source to target collection.
 
@@ -48,6 +60,7 @@ def migrate_collection(
         source: Source collection name
         target: Target collection name
         batch_size: Number of points per batch
+        dry_run: If True, only preview changes without modifying data
 
     Returns:
         Migration statistics
@@ -78,11 +91,14 @@ def migrate_collection(
 
     # Create target collection if not exists
     if target not in collections:
-        print(f"\nCreating target collection: {target}")
-        client.create_collection(
-            collection_name=target,
-            vectors_config=VectorParams(size=vector_size, distance=distance),
-        )
+        if dry_run:
+            print(f"\n[DRY-RUN] Would create target collection: {target}")
+        else:
+            print(f"\nCreating target collection: {target}")
+            client.create_collection(
+                collection_name=target,
+                vectors_config=VectorParams(size=vector_size, distance=distance),
+            )
     else:
         print(f"\nTarget collection '{target}' already exists")
         target_info = client.get_collection(target)
@@ -132,15 +148,18 @@ def migrate_collection(
             )
 
         # Upsert to target
-        try:
-            client.upsert(
-                collection_name=target,
-                points=new_points,
-            )
+        if dry_run:
             stats["migrated_points"] += len(new_points)
-        except Exception as e:
-            stats["errors"].append(f"Batch {batch_num}: {e}")
-            print(f"    Error: {e}")
+        else:
+            try:
+                client.upsert(
+                    collection_name=target,
+                    points=new_points,
+                )
+                stats["migrated_points"] += len(new_points)
+            except Exception as e:
+                stats["errors"].append(f"Batch {batch_num}: {e}")
+                print(f"    Error: {e}")
 
         # Continue or stop
         if next_offset is None:
@@ -152,24 +171,62 @@ def migrate_collection(
 
 def main():
     """Run migration."""
+    parser = argparse.ArgumentParser(
+        description="Migrate Qdrant collection and update metadata",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python scripts/migrate_qdrant.py --dry-run
+  python scripts/migrate_qdrant.py --source anima_Old --target anima_New
+  python scripts/migrate_qdrant.py --yes  # Skip confirmation
+        """,
+    )
+    parser.add_argument(
+        "--source",
+        default="anima_AnimaAgent",
+        help="Source collection name (default: anima_AnimaAgent)",
+    )
+    parser.add_argument(
+        "--target",
+        default="anima_Anima",
+        help="Target collection name (default: anima_Anima)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview changes without modifying data",
+    )
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    args = parser.parse_args()
+
     print("=" * 60)
-    print("Qdrant Migration: AnimaAgent -> Anima")
+    if args.dry_run:
+        print("Qdrant Migration [DRY-RUN MODE]")
+    else:
+        print("Qdrant Migration")
     print("=" * 60)
 
-    source_collection = "anima_AnimaAgent"
-    target_collection = "anima_Anima"
-
-    # Confirm
-    print(f"\nThis will migrate:")
-    print(f"  Source: {source_collection}")
-    print(f"  Target: {target_collection}")
+    print(f"\n{'[DRY-RUN] ' if args.dry_run else ''}This will migrate:")
+    print(f"  Source: {args.source}")
+    print(f"  Target: {args.target}")
+    print(f"  QDRANT_URL: {os.getenv('QDRANT_URL', 'NOT SET')}")
     print(f"\nMetadata changes:")
     print(f"  about='xiao_guang' -> about='self'")
 
-    response = input("\nProceed? (y/N): ")
-    if response.lower() != "y":
-        print("Aborted.")
-        return
+    if not args.dry_run:
+        print("\n⚠️  WARNING: This modifies production data!")
+        print("   - Old collection is kept as backup")
+        print("   - Use --dry-run to preview first")
+
+    if not args.yes and not args.dry_run:
+        response = input("\nProceed? (y/N): ")
+        if response.lower() != "y":
+            print("Aborted.")
+            return
 
     print("\n" + "-" * 60)
 
@@ -178,25 +235,30 @@ def main():
     try:
         stats = migrate_collection(
             client=client,
-            source=source_collection,
-            target=target_collection,
+            source=args.source,
+            target=args.target,
+            dry_run=args.dry_run,
         )
 
         print("\n" + "=" * 60)
-        print("Migration Complete!")
+        if args.dry_run:
+            print("Dry-Run Complete! (No changes made)")
+        else:
+            print("Migration Complete!")
         print("=" * 60)
         print(f"Total points in source: {stats['total_points']}")
-        print(f"Migrated points: {stats['migrated_points']}")
-        print(f"Updated 'about' fields: {stats['updated_about_fields']}")
+        print(f"{'Would migrate' if args.dry_run else 'Migrated'} points: {stats['migrated_points']}")
+        print(f"{'Would update' if args.dry_run else 'Updated'} 'about' fields: {stats['updated_about_fields']}")
 
         if stats["errors"]:
             print(f"\nErrors ({len(stats['errors'])}):")
             for err in stats["errors"]:
                 print(f"  - {err}")
 
-        # Verify
-        target_info = client.get_collection(target_collection)
-        print(f"\nTarget collection now has: {target_info.points_count} points")
+        # Verify (only if not dry-run)
+        if not args.dry_run:
+            target_info = client.get_collection(args.target)
+            print(f"\nTarget collection now has: {target_info.points_count} points")
 
     except Exception as e:
         print(f"\nMigration failed: {e}")
