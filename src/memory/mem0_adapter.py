@@ -529,7 +529,7 @@ class AgentMemory:
             try:
                 agent_metadata = self._format_metadata(
                     MemoryType.INTERACTION,
-                    {**metadata_base, "about": "xiao_guang"},
+                    {**metadata_base, "about": "self"},
                 )
                 agent_result = self._safe_add(
                     messages=[{"role": "assistant", "content": my_response}],
