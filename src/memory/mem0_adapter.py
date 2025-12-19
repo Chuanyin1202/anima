@@ -251,13 +251,13 @@ class AgentMemory:
             return False
 
         try:
-            # Check both agent and user scopes
-            agent_memories = self.memory.get_all(agent_id=self.agent_id)
-            user_memories = self.memory.get_all(user_id=self.agent_id)
+            # Check both agent and user scopes (use search_limit for efficiency)
+            agent_memories = self.memory.get_all(agent_id=self.agent_id, limit=search_limit)
+            user_memories = self.memory.get_all(user_id=self.agent_id, limit=search_limit)
 
             all_items = (
-                agent_memories.get("results", [])[:search_limit] +
-                user_memories.get("results", [])[:search_limit]
+                agent_memories.get("results", []) +
+                user_memories.get("results", [])
             )
 
             for item in all_items:
@@ -745,10 +745,10 @@ class AgentMemory:
             List of recent memory entries
         """
         # Get agent memories (agent's responses)
-        agent_memories = self.memory.get_all(agent_id=self.agent_id)
+        agent_memories = self.memory.get_all(agent_id=self.agent_id, limit=limit * 2)
 
         # Get user memories (observations, legacy interactions)
-        user_memories = self.memory.get_all(user_id=self.agent_id)
+        user_memories = self.memory.get_all(user_id=self.agent_id, limit=limit * 2)
 
         # Merge and dedupe
         seen_ids: set[str] = set()
@@ -835,9 +835,9 @@ class AgentMemory:
 
     def get_stats(self) -> dict:
         """Get memory statistics (merges agent and user memories)."""
-        # Get both agent and user memories
-        agent_memories = self.memory.get_all(agent_id=self.agent_id)
-        user_memories = self.memory.get_all(user_id=self.agent_id)
+        # Get both agent and user memories (Mem0 defaults to limit=100, increase it)
+        agent_memories = self.memory.get_all(agent_id=self.agent_id, limit=5000)
+        user_memories = self.memory.get_all(user_id=self.agent_id, limit=5000)
 
         # Dedupe by ID
         seen_ids: set[str] = set()
@@ -868,7 +868,7 @@ class AgentMemory:
 
     def get_skipped_records(self, limit: int = 50) -> list[dict]:
         """Get skipped post records for audit purposes."""
-        all_memories = self.memory.get_all(agent_id=self.agent_id)
+        all_memories = self.memory.get_all(agent_id=self.agent_id, limit=1000)
 
         skipped = []
         for item in all_memories.get("results", []):
