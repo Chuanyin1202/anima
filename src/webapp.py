@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -37,8 +38,6 @@ from .utils.ideas import read_index, mark_posted, mark_skipped
 
 logger = structlog.get_logger()
 
-app = FastAPI(title="Anima Console")
-
 # Globals kept for app lifetime
 brain = None
 scheduler: Optional[AgentScheduler] = None
@@ -50,10 +49,12 @@ class PostCustomRequest(BaseModel):
     content: str
 
 
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Initialize brain, threads client, and scheduler."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan: startup and shutdown."""
     global brain, scheduler, threads_client, me_id
+
+    # === STARTUP ===
     settings = get_settings()
 
     # Create brain (observation_mode False for real runs)
@@ -92,11 +93,9 @@ async def startup_event() -> None:
     scheduler.start()
     logger.info("console_scheduler_started")
 
+    yield  # App runs here
 
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Gracefully stop scheduler and clients."""
-    global brain, scheduler, threads_client
+    # === SHUTDOWN ===
     try:
         if scheduler:
             scheduler.stop()
@@ -112,6 +111,9 @@ async def shutdown_event() -> None:
             await threads_client.close()
     except Exception:
         logger.warning("threads_close_failed", exc_info=True)
+
+
+app = FastAPI(title="Anima Console", lifespan=lifespan)
 
 
 # =============================================================================
