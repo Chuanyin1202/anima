@@ -668,36 +668,16 @@ class AgentBrain:
                 refinement_attempts,
             )
 
-    async def create_original_post(
-        self,
-        topic: Optional[str] = None,
-        *,
-        raise_on_error: bool = False,
-    ) -> Optional[str]:
-        """Create an original post (not a reply).
+    async def generate_post_content(self, topic: str) -> str:
+        """Generate post content for preview without posting.
 
         Args:
-            topic: Optional topic to post about. If None, chooses from interests.
-            raise_on_error: If True, re-raise publish errors to caller for UX feedback.
+            topic: The topic to generate content about.
 
         Returns:
-            The post ID if successful, None otherwise.
+            Generated post content (without signature).
         """
-        if not await self.threads.can_publish():
-            logger.warning("cannot_publish_rate_limit")
-            return None
-
         await self._ensure_clients_ready()
-
-        # Choose a topic if not provided
-        if not topic:
-            if self.persona.interests.primary:
-                topic = random.choice(self.persona.interests.primary)
-            elif self.persona.interests.secondary:
-                topic = random.choice(self.persona.interests.secondary)
-            else:
-                logger.warning("no_interests_configured")
-                return None
 
         # Get relevant memories + idea pool
         memory_context = self.memory.get_context_for_response(topic, max_memories=3)
@@ -737,42 +717,105 @@ Guidelines:
 
         post_content = response.choices[0].message.content or ""
 
+        # Enforce persona limit and Threads 500 char cap (safe hard stop)
+        # Reserve space for signature that will be added when posting
+        ai_signature_len = len(self.persona.identity.signature or "") + 2  # +2 for \n\n
+        max_len = min(self.persona.interaction_rules.max_response_length, 500) - ai_signature_len
+        if len(post_content) > max_len:
+            post_content = post_content[: max_len - 3] + "..."
+
+        logger.info("post_content_generated", topic=topic, length=len(post_content))
+        return post_content
+
+    async def post_custom_content(
+        self,
+        content: str,
+        topic: str,
+        *,
+        raise_on_error: bool = False,
+    ) -> Optional[str]:
+        """Post custom/edited content to Threads.
+
+        Args:
+            content: The content to post (without signature).
+            topic: The topic for memory context.
+            raise_on_error: If True, re-raise publish errors.
+
+        Returns:
+            The post ID if successful, None otherwise.
+        """
+        if not await self.threads.can_publish():
+            logger.warning("cannot_publish_rate_limit")
+            return None
+
+        await self._ensure_clients_ready()
+
+        # Add signature
         ai_signature = ""
         if self.persona.identity.signature:
             ai_signature = f"\n\n{self.persona.identity.signature}"
 
-        # Enforce persona limit and Threads 500 char cap (safe hard stop)
-        # Account for signature length
-        max_len = min(self.persona.interaction_rules.max_response_length, 500) - len(ai_signature)
-        if len(post_content) > max_len:
-            post_content = post_content[: max_len - 3] + "..."
-
-        # Keep content without signature for memory storage
-        post_content_for_memory = post_content
-
-        # Add signature for publishing
-        post_content_with_signature = post_content + ai_signature
+        content_with_signature = content + ai_signature
 
         try:
-            post_id = await self.threads.create_post(post_content_with_signature)
+            post_id = await self.threads.create_post(content_with_signature)
 
-            # Record in memory WITHOUT signature (no participant for original posts)
+            # Record in memory WITHOUT signature
             self.memory.record_interaction(
-                my_response=post_content_for_memory,
+                my_response=content,
                 context=f"Original post about {topic}",
                 interaction_type="post",
                 post_id=post_id,
-                participant_id=None,  # Original post has no participant
+                participant_id=None,
             )
 
-            logger.info("original_post_created", post_id=post_id, topic=topic)
+            logger.info("custom_post_created", post_id=post_id, topic=topic)
             return post_id
 
         except Exception as e:
-            logger.error("original_post_failed", error=str(e))
+            logger.error("custom_post_failed", error=str(e))
             if raise_on_error:
                 raise
             return None
+
+    async def create_original_post(
+        self,
+        topic: Optional[str] = None,
+        *,
+        raise_on_error: bool = False,
+    ) -> Optional[str]:
+        """Create an original post (not a reply).
+
+        Args:
+            topic: Optional topic to post about. If None, chooses from interests.
+            raise_on_error: If True, re-raise publish errors to caller for UX feedback.
+
+        Returns:
+            The post ID if successful, None otherwise.
+        """
+        if not await self.threads.can_publish():
+            logger.warning("cannot_publish_rate_limit")
+            return None
+
+        # Choose a topic if not provided
+        if not topic:
+            if self.persona.interests.primary:
+                topic = random.choice(self.persona.interests.primary)
+            elif self.persona.interests.secondary:
+                topic = random.choice(self.persona.interests.secondary)
+            else:
+                logger.warning("no_interests_configured")
+                return None
+
+        # Generate content using shared method
+        post_content = await self.generate_post_content(topic)
+
+        # Post using shared method
+        return await self.post_custom_content(
+            content=post_content,
+            topic=topic,
+            raise_on_error=raise_on_error,
+        )
 
     def get_stats(self) -> dict:
         """Get agent statistics."""
