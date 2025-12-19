@@ -31,7 +31,7 @@ from .agent.scheduler import AgentScheduler
 from .main import create_agent_brain
 from .threads import ThreadsClient, MockThreadsClient
 from .utils.config import get_settings
-from .utils.ideas import read_index, mark_posted
+from .utils.ideas import read_index, mark_posted, mark_skipped
 
 logger = structlog.get_logger()
 
@@ -597,6 +597,7 @@ async def api_stats():
     ideas = read_index()
     pending = [i for i in ideas if i.status == "pending"]
     posted = [i for i in ideas if i.status == "posted"]
+    skipped = [i for i in ideas if i.status == "skip"]
 
     # Count posts today and this week
     now = datetime.now(timezone.utc)
@@ -633,6 +634,7 @@ async def api_stats():
         "posted_today": posted_today,
         "posted_week": posted_week,
         "total_posted": len(posted),
+        "skipped_count": len(skipped),
         "memory_count": memory_count,
     }
 
@@ -701,7 +703,7 @@ async def api_skip_idea(idea_id: str):
         raise HTTPException(status_code=404, detail="Idea not found or already processed")
 
     try:
-        mark_posted(idea_id=idea.id, post_id="skipped")
+        mark_skipped(idea_id=idea.id)
         return {"status": "skipped"}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to skip: {exc}")
@@ -774,6 +776,10 @@ async def dashboard():
         <div class="stat-label">本週發佈</div>
       </div>
       <div class="stat-card">
+        <div class="stat-value" id="stat-skipped">-</div>
+        <div class="stat-label">已跳過</div>
+      </div>
+      <div class="stat-card">
         <div class="stat-value" id="stat-memory">-</div>
         <div class="stat-label">記憶數量</div>
       </div>
@@ -785,6 +791,7 @@ async def dashboard():
           document.getElementById('stat-pending').textContent = data.pending_count;
           document.getElementById('stat-today').textContent = data.posted_today;
           document.getElementById('stat-week').textContent = data.posted_week;
+          document.getElementById('stat-skipped').textContent = data.skipped_count;
           document.getElementById('stat-memory').textContent = data.memory_count;
         })
         .catch(() => {});

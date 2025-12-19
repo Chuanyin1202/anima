@@ -112,6 +112,19 @@ def mark_posted(idea_id: str, post_id: str | None = None, path: Path = IDEA_INDE
         write_index(ideas, path)
 
 
+def mark_skipped(idea_id: str, path: Path = IDEA_INDEX) -> None:
+    """Mark an idea as skipped."""
+    ideas = read_index(path)
+    changed = False
+    for idea in ideas:
+        if idea.id == idea_id:
+            idea.status = "skip"
+            changed = True
+            break
+    if changed:
+        write_index(ideas, path)
+
+
 def get_recent_ideas(
     path: Path = IDEA_INDEX,
     max_items: int = 3,
