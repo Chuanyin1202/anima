@@ -109,6 +109,9 @@ class AgentMemory:
     ):
         self.agent_id = agent_id
         self.llm_model = llm_model
+        self.qdrant_url = qdrant_url
+        self.qdrant_api_key = qdrant_api_key
+        self.collection_name = f"anima_{agent_id}"
 
         # Patch mem0 qdrant adapter to avoid upserting vector=None (causes PointStruct errors)
         self._patch_mem0_qdrant_update()
@@ -834,37 +837,65 @@ class AgentMemory:
             return False
 
     def get_stats(self) -> dict:
-        """Get memory statistics (merges agent and user memories)."""
-        # Get both agent and user memories (Mem0 defaults to limit=100, increase it)
-        agent_memories = self.memory.get_all(agent_id=self.agent_id, limit=5000)
-        user_memories = self.memory.get_all(user_id=self.agent_id, limit=5000)
+        """Get memory statistics directly from Qdrant.
 
-        # Dedupe by ID
-        seen_ids: set[str] = set()
-        unique_items: list[dict] = []
+        Returns total count from collection and breakdown by memory_type.
+        """
+        import requests
 
-        for item in agent_memories.get("results", []) + user_memories.get("results", []):
-            item_id = item.get("id", "")
-            if item_id not in seen_ids:
-                seen_ids.add(item_id)
-                unique_items.append(item)
+        total_memories = 0
+        by_type: dict[str, int] = {}
 
-        # Count skipped records
-        skipped_count = sum(
-            1 for item in unique_items if item.get("metadata", {}).get("skipped", False)
-        )
+        try:
+            # Build request headers
+            headers = {"Content-Type": "application/json"}
+            if self.qdrant_api_key:
+                headers["api-key"] = self.qdrant_api_key
 
-        stats = {
-            "total_memories": len(unique_items),
-            "skipped_records": skipped_count,
-            "by_type": {},
+            # Get collection info for total count
+            collection_url = f"{self.qdrant_url}/collections/{self.collection_name}"
+            resp = requests.get(collection_url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                total_memories = data.get("result", {}).get("points_count", 0)
+
+            # Get breakdown by memory_type using scroll with filter
+            memory_types = ["observation", "interaction", "reflective"]
+            for mem_type in memory_types:
+                count_url = f"{self.qdrant_url}/collections/{self.collection_name}/points/count"
+                filter_body = {
+                    "filter": {
+                        "must": [
+                            {"key": "memory_type", "match": {"value": mem_type}}
+                        ]
+                    },
+                    "exact": True,
+                }
+                count_resp = requests.post(
+                    count_url, headers=headers, json=filter_body, timeout=10
+                )
+                if count_resp.status_code == 200:
+                    count_data = count_resp.json()
+                    by_type[mem_type] = count_data.get("result", {}).get("count", 0)
+
+        except Exception as e:
+            logger.warning("get_stats_qdrant_failed", error=str(e))
+            # Fallback to Mem0 query if Qdrant direct access fails
+            agent_memories = self.memory.get_all(agent_id=self.agent_id, limit=5000)
+            user_memories = self.memory.get_all(user_id=self.agent_id, limit=5000)
+            seen_ids: set[str] = set()
+            for item in agent_memories.get("results", []) + user_memories.get("results", []):
+                item_id = item.get("id", "")
+                if item_id not in seen_ids:
+                    seen_ids.add(item_id)
+                    mem_type = item.get("metadata", {}).get("memory_type", "unknown")
+                    by_type[mem_type] = by_type.get(mem_type, 0) + 1
+            total_memories = len(seen_ids)
+
+        return {
+            "total_memories": total_memories,
+            "by_type": by_type,
         }
-
-        for item in unique_items:
-            mem_type = item.get("metadata", {}).get("memory_type", "unknown")
-            stats["by_type"][mem_type] = stats["by_type"].get(mem_type, 0) + 1
-
-        return stats
 
     def get_skipped_records(self, limit: int = 50) -> list[dict]:
         """Get skipped post records for audit purposes."""

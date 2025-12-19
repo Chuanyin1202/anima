@@ -637,12 +637,14 @@ async def api_stats():
         except Exception:
             pass
 
-    # Get memory count from brain if available
+    # Get memory stats from brain if available
     memory_count = 0
+    memory_by_type: dict[str, int] = {}
     try:
         if brain and brain.memory:
             stats = brain.memory.get_stats()
             memory_count = stats.get("total_memories", 0)
+            memory_by_type = stats.get("by_type", {})
     except Exception:
         pass
 
@@ -653,6 +655,7 @@ async def api_stats():
         "total_posted": len(posted),
         "skipped_count": len(skipped),
         "memory_count": memory_count,
+        "memory_by_type": memory_by_type,
     }
 
 
