@@ -733,6 +733,8 @@ Guidelines:
         content: str,
         topic: str,
         *,
+        source: str = "manual",
+        idea_id: Optional[str] = None,
         raise_on_error: bool = False,
     ) -> Optional[str]:
         """Post custom/edited content to Threads.
@@ -740,6 +742,8 @@ Guidelines:
         Args:
             content: The content to post (without signature).
             topic: The topic for memory context.
+            source: Source of the post ("scheduled", "manual", "console").
+            idea_id: Optional link to the idea that generated this post.
             raise_on_error: If True, re-raise publish errors.
 
         Returns:
@@ -770,10 +774,33 @@ Guidelines:
                 participant_id=None,
             )
 
+            # Log to posts.jsonl
+            if self.simulation_logger:
+                self.simulation_logger.log_post(
+                    post_id=post_id,
+                    content=content,
+                    topic=topic,
+                    source=source,
+                    idea_id=idea_id,
+                    was_posted=True,
+                )
+
             logger.info("custom_post_created", post_id=post_id, topic=topic)
             return post_id
 
         except Exception as e:
+            # Log failure
+            if self.simulation_logger:
+                self.simulation_logger.log_post(
+                    post_id="",
+                    content=content,
+                    topic=topic,
+                    source=source,
+                    idea_id=idea_id,
+                    was_posted=False,
+                    error=str(e),
+                )
+
             logger.error("custom_post_failed", error=str(e))
             if raise_on_error:
                 raise
@@ -783,12 +810,16 @@ Guidelines:
         self,
         topic: Optional[str] = None,
         *,
+        source: str = "manual",
+        idea_id: Optional[str] = None,
         raise_on_error: bool = False,
     ) -> Optional[str]:
         """Create an original post (not a reply).
 
         Args:
             topic: Optional topic to post about. If None, chooses from interests.
+            source: Source of the post ("scheduled", "manual", "console").
+            idea_id: Optional link to the idea that generated this post.
             raise_on_error: If True, re-raise publish errors to caller for UX feedback.
 
         Returns:
@@ -815,6 +846,8 @@ Guidelines:
         return await self.post_custom_content(
             content=post_content,
             topic=topic,
+            source=source,
+            idea_id=idea_id,
             raise_on_error=raise_on_error,
         )
 

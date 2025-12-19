@@ -566,6 +566,7 @@ def _render_html(title: str, body: str, include_modal: bool = False) -> HTMLResp
   <nav class="nav">
     <a href="/">Dashboard</a>
     <a href="/responses">回應紀錄</a>
+    <a href="/posts">發文紀錄</a>
     <a href="/healthz">健康檢查</a>
   </nav>
   <h1>{title}</h1>
@@ -682,6 +683,8 @@ async def api_post_custom(idea_id: str, request: PostCustomRequest):
         post_id = await brain.post_custom_content(
             content=content,
             topic=idea.summary,
+            source="console",
+            idea_id=idea.id,
             raise_on_error=True,
         )
         if not post_id:
@@ -720,7 +723,12 @@ async def post_idea(idea_id: str):
 
     # Create post
     try:
-        post_id = await brain.create_original_post(topic=idea.summary, raise_on_error=True)
+        post_id = await brain.create_original_post(
+            topic=idea.summary,
+            source="console",
+            idea_id=idea.id,
+            raise_on_error=True,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("manual_post_failed", idea_id=idea_id, error=str(exc), exc_info=True)
         detail = str(exc)
@@ -893,3 +901,60 @@ async def recent_responses():
     </table>
     """
     return _render_html("回應紀錄", body)
+
+
+@app.get("/posts", response_class=HTMLResponse)
+async def recent_posts():
+    """View recent original post history."""
+    path = Path("data/real_logs/posts.jsonl")
+    if not path.exists():
+        return _render_html("發文紀錄", '<div class="empty-state">尚無發文紀錄</div>')
+
+    lines = path.read_text(encoding="utf-8").splitlines()[-50:]
+    rows = []
+
+    source_labels = {
+        "scheduled": "排程",
+        "console": "手動",
+        "manual": "CLI",
+    }
+
+    for line in reversed(lines):  # Most recent first
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+
+        status = "posted" if rec.get("was_posted") else "failed"
+        badge_class = "badge-success" if status == "posted" else "badge-danger"
+        badge = f'<span class="badge {badge_class}">{status}</span>'
+
+        source = rec.get("source", "unknown")
+        source_label = source_labels.get(source, source)
+        source_badge = f'<span class="badge">{source_label}</span>'
+
+        err = rec.get("error") or ""
+        content = (rec.get("content") or "")[:200]
+        topic = rec.get("topic") or ""
+
+        rows.append(f"""
+        <tr>
+          <td>{badge} {source_badge}</td>
+          <td class="muted">{rec.get('timestamp', '')[:19]}</td>
+          <td>
+            <div class="muted">主題: {topic}</div>
+            <div>{content}{'...' if len(content) >= 200 else ''}</div>
+            {'<div class="muted" style="color:var(--danger)">' + err + '</div>' if err else ''}
+          </td>
+        </tr>
+        """)
+
+    rows_html = "".join(rows or ['<tr><td colspan="3" class="empty-state">尚無資料</td></tr>'])
+    body = f"""
+    <p class="muted">最近 50 筆原創發文紀錄（最新在前）</p>
+    <table>
+      <thead><tr><th style="width:120px">狀態</th><th style="width:160px">時間</th><th>內容</th></tr></thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+    """
+    return _render_html("發文紀錄", body)

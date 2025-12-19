@@ -204,7 +204,11 @@ class AgentScheduler:
                         logger.info("idea_skipped_duplicate", idea_id=idea.id, query=search_query)
                         continue
 
-                post_id = await self.brain.create_original_post(topic=idea.summary)
+                post_id = await self.brain.create_original_post(
+                    topic=idea.summary,
+                    source="scheduled",
+                    idea_id=idea.id,
+                )
                 if post_id:
                     mark_posted(idea_id=idea.id, post_id=post_id)
                     logger.info("idea_posted", idea_id=idea.id, post_id=post_id)

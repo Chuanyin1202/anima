@@ -49,6 +49,7 @@ class SimulationLogger:
         self.observations_file = self.output_dir / "observations.jsonl"
         self.decisions_file = self.output_dir / "decisions.jsonl"
         self.responses_file = self.output_dir / "responses.jsonl"
+        self.posts_file = self.output_dir / "posts.jsonl"
         self.reflections_file = self.output_dir / "reflections.jsonl"
         self.labels_file = self.output_dir / "labels.jsonl"
         self.sessions_file = self.output_dir / "sessions.jsonl"
@@ -250,6 +251,52 @@ class SimulationLogger:
         )
         return record
 
+    def log_post(
+        self,
+        post_id: str,
+        content: str,
+        topic: str,
+        source: str,
+        idea_id: Optional[str] = None,
+        was_posted: bool = True,
+        error: Optional[str] = None,
+    ) -> dict:
+        """Log an original post (not a reply).
+
+        Args:
+            post_id: The created post ID (or empty if failed).
+            content: The post content.
+            topic: The topic of the post.
+            source: Source of the post ("scheduled", "manual", "console").
+            idea_id: Optional link to the idea that generated this post.
+            was_posted: Whether the post was actually created.
+            error: Error message if posting failed.
+
+        Returns:
+            The created post record.
+        """
+        record = {
+            "id": f"post_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{post_id[:8] if post_id else 'none'}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "post_id": post_id,
+            "content": content,
+            "topic": topic,
+            "source": source,
+            "idea_id": idea_id,
+            "was_posted": was_posted,
+            "error": error,
+        }
+        self._append_to_file(self.posts_file, record)
+
+        logger.info(
+            "post_logged",
+            record_id=record["id"],
+            post_id=post_id,
+            source=source,
+            was_posted=was_posted,
+        )
+        return record
+
     def log_reflection(
         self,
         content: str,
@@ -332,6 +379,10 @@ class SimulationLogger:
     def get_responses(self) -> list[dict]:
         """Get all response records."""
         return self._read_all_records(self.responses_file)
+
+    def get_posts(self) -> list[dict]:
+        """Get all original post records."""
+        return self._read_all_records(self.posts_file)
 
     def get_reflections(self) -> list[dict]:
         """Get all reflection records."""
