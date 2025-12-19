@@ -10,6 +10,7 @@ Rate Limits:
 """
 
 import asyncio
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -332,6 +333,38 @@ class ThreadsClient:
     # Publishing
     # =========================================================================
 
+    async def _wait_for_container_ready(
+        self, container_id: str, timeout: float = 30.0, poll_interval: float = 1.0
+    ) -> None:
+        """Poll container status until FINISHED or timeout.
+
+        Official recommendation: poll once per minute, max 5 minutes.
+        For text-only posts, we use shorter intervals as processing is fast.
+
+        See: https://developers.facebook.com/docs/threads/troubleshooting
+        """
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
+            status_data = await self._request(
+                "GET", container_id, params={"fields": "status,error_message"}
+            )
+            status = status_data.get("status")
+
+            if status == "FINISHED":
+                logger.debug("container_ready", container_id=container_id)
+                return
+            if status == "ERROR":
+                error_msg = status_data.get("error_message", "Unknown error")
+                raise ThreadsAPIError(f"Container error: {error_msg}")
+            if status == "EXPIRED":
+                raise ThreadsAPIError("Container expired before publishing")
+
+            # IN_PROGRESS - wait and retry
+            logger.debug("container_processing", container_id=container_id, status=status)
+            await asyncio.sleep(poll_interval)
+
+        raise ThreadsAPIError(f"Container processing timeout after {timeout}s")
+
     async def create_post(self, text: str) -> str:
         """Create a new text post.
 
@@ -348,7 +381,10 @@ class ThreadsClient:
         )
         container_id = container_data["id"]
 
-        # Step 2: Publish the container
+        # Step 2: Wait for container to be ready
+        await self._wait_for_container_ready(container_id, timeout=10.0)
+
+        # Step 3: Publish the container
         publish_data = await self._request(
             "POST",
             f"{self.user_id}/threads_publish",
@@ -375,7 +411,10 @@ class ThreadsClient:
         )
         container_id = container_data["id"]
 
-        # Step 2: Publish the reply
+        # Step 2: Wait for container to be ready
+        await self._wait_for_container_ready(container_id, timeout=10.0)
+
+        # Step 3: Publish the reply
         publish_data = await self._request(
             "POST",
             f"{self.user_id}/threads_publish",
