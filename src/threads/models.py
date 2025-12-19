@@ -68,7 +68,7 @@ class Reply(BaseModel):
 class PublishRequest(BaseModel):
     """Request model for publishing a post."""
 
-    text: str = Field(..., max_length=500)
+    text: str = Field(..., max_length=10000)  # Threads supports up to 10K chars (Sep 2025)
     media_type: MediaType = MediaType.TEXT
     reply_to_id: Optional[str] = None  # For replies
 

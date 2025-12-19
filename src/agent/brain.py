@@ -718,10 +718,10 @@ Guidelines:
 
         post_content = response.choices[0].message.content or ""
 
-        # Enforce persona limit and Threads 500 char cap (safe hard stop)
+        # Enforce persona limit (Threads supports up to 10K chars since Sep 2025)
         # Reserve space for signature that will be added when posting
         ai_signature_len = len(self.persona.identity.signature or "") + 2  # +2 for \n\n
-        max_len = min(self.persona.interaction_rules.max_response_length, 500) - ai_signature_len
+        max_len = self.persona.interaction_rules.max_response_length - ai_signature_len
         if len(post_content) > max_len:
             post_content = post_content[: max_len - 3] + "..."
 
