@@ -364,6 +364,9 @@ function openModal(modalId) {
 
 function closeModal(modalId) {
   document.getElementById(modalId).classList.remove('active');
+  if (modalId === 'preview-modal') {
+    currentPreviewIdeaId = null;
+  }
 }
 
 // Character counter
@@ -404,10 +407,12 @@ async function previewIdea(ideaId, summary) {
       textarea.disabled = false;
       updateCharCount(textarea, 'preview-char-count');
     } else {
-      textarea.value = `生成失敗: ${data.detail || '未知錯誤'}`;
+      closeModal('preview-modal');
+      showToast(`生成失敗: ${data.detail || '未知錯誤'}`, 'error');
     }
   } catch (err) {
-    textarea.value = `生成失敗: ${err}`;
+    closeModal('preview-modal');
+    showToast(`生成失敗: ${err}`, 'error');
   }
 }
 
@@ -465,7 +470,7 @@ async function postIdea(ideaId) {
   if (btn) btn.innerHTML = '<span class="spinner"></span>發佈中...';
 
   try {
-    const resp = await fetch(`/ideas/${ideaId}/post`, { method: 'POST' });
+    const resp = await fetch(`/api/ideas/${ideaId}/post`, { method: 'POST' });
     const data = await resp.json();
     if (resp.ok) {
       showToast('發佈成功！', 'success');
@@ -487,6 +492,9 @@ async function skipIdea(ideaId) {
   if (isPosting) return;
   if (!confirm('確定要跳過這個 idea 嗎？')) return;
 
+  isPosting = true;
+  setAllButtonsDisabled(true);
+
   try {
     const resp = await fetch(`/api/ideas/${ideaId}/skip`, { method: 'POST' });
     if (resp.ok) {
@@ -498,6 +506,9 @@ async function skipIdea(ideaId) {
     }
   } catch (err) {
     showToast(`跳過失敗: ${err}`, 'error');
+  } finally {
+    isPosting = false;
+    setAllButtonsDisabled(false);
   }
 }
 
@@ -626,7 +637,7 @@ async def api_stats():
     memory_count = 0
     try:
         if brain and brain.memory:
-            stats = await brain.memory.get_stats()
+            stats = brain.memory.get_stats()
             memory_count = stats.get("total_memories", 0)
     except Exception:
         pass
@@ -650,6 +661,8 @@ async def api_pending_ideas():
 @app.post("/api/ideas/{idea_id}/preview")
 async def api_preview_idea(idea_id: str):
     """Generate a preview of the post content without actually posting."""
+    if not brain:
+        raise HTTPException(status_code=503, detail="System initializing")
     ideas = read_index()
     idea = next((i for i in ideas if i.id == idea_id and i.status == "pending"), None)
     if not idea:
@@ -667,6 +680,8 @@ async def api_preview_idea(idea_id: str):
 @app.post("/api/ideas/{idea_id}/post-custom")
 async def api_post_custom(idea_id: str, request: PostCustomRequest):
     """Post custom content for an idea."""
+    if not brain:
+        raise HTTPException(status_code=503, detail="System initializing")
     ideas = read_index()
     idea = next((i for i in ideas if i.id == idea_id and i.status == "pending"), None)
     if not idea:
@@ -713,9 +728,11 @@ async def api_skip_idea(idea_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to skip: {exc}")
 
 
-@app.post("/ideas/{idea_id}/post")
+@app.post("/api/ideas/{idea_id}/post")
 async def post_idea(idea_id: str):
     """Manually post an idea and mark it posted."""
+    if not brain:
+        raise HTTPException(status_code=503, detail="System initializing")
     ideas = read_index()
     idea = next((i for i in ideas if i.id == idea_id and i.status == "pending"), None)
     if not idea:
@@ -883,7 +900,7 @@ async def recent_responses():
         rows.append(f"""
         <tr>
           <td>{badge}</td>
-          <td class="muted">{rec.get('timestamp', '')}</td>
+          <td class="muted">{rec.get('timestamp', '')[:19]}</td>
           <td>
             <div class="muted">{original}{'...' if len(original) >= 140 else ''}</div>
             <div>{response}{'...' if len(response) >= 200 else ''}</div>
