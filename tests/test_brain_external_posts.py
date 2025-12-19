@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+from src.adapters.protocol import PlatformPost
 from src.agent.brain import AgentBrain
 from src.agent.persona import Persona
 from src.threads.models import MediaType, Post
@@ -48,15 +49,49 @@ class StubReflectionEngine:
         self.generate_interaction_reflection = AsyncMock()
 
 
-class StubThreadsClient:
+class StubPlatformAdapter:
+    """Stub adapter implementing PlatformAdapter protocol for testing."""
+
     def __init__(self):
-        self.can_reply = AsyncMock(return_value=True)
+        pass
 
     async def open(self):
         return None
 
     async def close(self):
         return None
+
+    async def can_reply(self):
+        return True
+
+    async def can_post(self):
+        return True
+
+    async def reply(self, post_id: str, content: str) -> str:
+        return f"reply_{post_id}"
+
+    async def post(self, content: str) -> str:
+        return "new_post_id"
+
+    async def get_post(self, post_id: str) -> PlatformPost:
+        return PlatformPost(
+            id=post_id,
+            text="test",
+            timestamp=datetime.now(timezone.utc),
+            username="test_user",
+            platform="test",
+        )
+
+    async def get_mentions(self, max_posts=10, max_replies_per_post=10):
+        return []
+
+    async def search(self, query: str, limit: int = 25):
+        from src.adapters.protocol import SearchResult
+        return SearchResult(posts=[], has_more=False)
+
+    async def get_user_profile(self, user_id=None):
+        from src.adapters.protocol import PlatformUser
+        return PlatformUser(id="test_id", username="test_user")
 
 
 @pytest.mark.asyncio
@@ -66,7 +101,7 @@ async def test_run_cycle_with_external_posts():
 
     brain = AgentBrain(
         persona=persona,
-        threads_client=StubThreadsClient(),
+        platform=StubPlatformAdapter(),
         memory=StubMemory(),
         openai_client=MagicMock(aclose=AsyncMock()),
         observation_mode=True,

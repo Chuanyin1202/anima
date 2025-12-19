@@ -20,6 +20,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 from openai import AsyncOpenAI
 
+from .adapters import ThreadsAdapter
 from .agent import AgentBrain, AgentScheduler, Persona
 from .agent.scheduler import run_cli_mode
 from .memory import AgentMemory
@@ -101,7 +102,7 @@ async def create_agent_brain(
         llm_model=settings.openai_model,
     )
 
-    # Initialize Threads client (real or mock)
+    # Initialize Threads client (real or mock) with adapter
     if is_mock_mode:
         logger.info("using_mock_threads_client")
         threads_client = MockThreadsClient(
@@ -113,6 +114,7 @@ async def create_agent_brain(
             access_token=settings.threads_access_token,
             user_id=settings.threads_user_id,
         )
+    platform = ThreadsAdapter(threads_client)
 
     # Initialize simulation logger
     simulation_logger = None
@@ -134,7 +136,7 @@ async def create_agent_brain(
     # Create brain
     brain = AgentBrain(
         persona=persona,
-        threads_client=threads_client,
+        platform=platform,
         memory=memory,
         openai_client=openai_client,
         model=settings.openai_model,
@@ -193,7 +195,7 @@ async def run_observe_mode(args: argparse.Namespace) -> int:
             access_token=settings.threads_access_token or "mock_token",
             user_id=settings.threads_user_id or "mock_user",
         ) as threads:
-            brain.threads = threads
+            brain.platform = ThreadsAdapter(threads)
 
             for i in range(cycles):
                 logger.info("observation_cycle", cycle=i + 1, total=cycles)
@@ -422,8 +424,8 @@ async def async_main(args: argparse.Namespace) -> int:
             access_token=settings.threads_access_token or "mock_token",
             user_id=settings.threads_user_id or "mock_user",
         ) as threads:
-            # Update brain with context-managed client
-            brain.threads = threads
+            # Update brain with context-managed adapter
+            brain.platform = ThreadsAdapter(threads)
 
             if args.mode == "daemon":
                 await run_daemon(brain)

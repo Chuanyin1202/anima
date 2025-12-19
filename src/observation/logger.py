@@ -133,7 +133,7 @@ class SimulationLogger:
             text=post.text,
             username=post.username,
             timestamp=post.timestamp,
-            media_type=post.media_type.value if post.media_type else None,
+            media_type=post.media_type.value if hasattr(post.media_type, 'value') else post.media_type,
             permalink=post.permalink,
         )
 

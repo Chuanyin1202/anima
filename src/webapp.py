@@ -27,6 +27,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 from pydantic import BaseModel
 
+from .adapters import ThreadsAdapter
 from .agent.scheduler import AgentScheduler
 from .main import create_agent_brain
 from .threads import ThreadsClient, MockThreadsClient
@@ -57,14 +58,14 @@ async def startup_event() -> None:
     # Create brain (observation_mode False for real runs)
     brain = await create_agent_brain(settings=settings, observation_mode=False)
 
-    # Select client class
+    # Select client class and create adapter
     client_cls = MockThreadsClient if settings.use_mock_threads else ThreadsClient
     threads_client = client_cls(
         access_token=settings.threads_access_token or "mock_token",
         user_id=settings.threads_user_id or "mock_user",
     )
     await threads_client.open()
-    brain.threads = threads_client
+    brain.platform = ThreadsAdapter(threads_client)
 
     # Ensure external clients ready (caches self profile if needed)
     try:

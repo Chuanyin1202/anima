@@ -18,9 +18,10 @@ from typing import Optional
 import structlog
 from openai import AsyncOpenAI
 
+from ..adapters import PlatformAdapter
+from ..adapters.protocol import PlatformPost
 from ..memory import AgentMemory, ReflectionEngine
 from ..observation import SimulationLogger
-from ..threads import Post, ThreadsClient
 from ..threads.client import ThreadsAPIError
 from .persona import EMOJI_PATTERN, Persona, PersonaEngine
 from ..utils.config import is_reasoning_model
@@ -56,7 +57,7 @@ class AgentBrain:
     def __init__(
         self,
         persona: Persona,
-        threads_client: ThreadsClient,
+        platform: PlatformAdapter,
         memory: AgentMemory,
         openai_client: AsyncOpenAI,
         model: str = "gpt-5-mini",
@@ -69,7 +70,7 @@ class AgentBrain:
         simulation_logger: Optional[SimulationLogger] = None,
     ):
         self.persona = persona
-        self.threads = threads_client
+        self.platform = platform
         self.memory = memory
         self.openai = openai_client
         self.model = model
@@ -142,13 +143,13 @@ class AgentBrain:
 
     async def _ensure_clients_ready(self) -> None:
         """Ensure external clients are initialized before use."""
-        await self.threads.open()
+        await self.platform.open()
         await self._ensure_self_profile_cached()
 
     async def close(self) -> None:
         """Close any underlying resources."""
         try:
-            await self.threads.close()
+            await self.platform.close()
         except Exception:
             logger.debug("threads_close_failed", exc_info=True)
         try:
@@ -156,7 +157,7 @@ class AgentBrain:
         except Exception:
             logger.debug("openai_close_failed", exc_info=True)
 
-    async def run_cycle(self, external_posts: Optional[list[Post]] = None) -> list[InteractionResult]:
+    async def run_cycle(self, external_posts: Optional[list[PlatformPost]] = None) -> list[InteractionResult]:
         """Run one complete interaction cycle.
 
         This method:
@@ -196,7 +197,7 @@ class AgentBrain:
                 await self.reflection_engine.generate_daily_reflection()
 
             # Step 2: Check rate limits
-            if not await self.threads.can_reply():
+            if not await self.platform.can_reply():
                 logger.warning("rate_limit_reached")
                 return results
 
@@ -322,7 +323,7 @@ class AgentBrain:
 
         return results
 
-    async def _fetch_interesting_posts(self) -> list[Post]:
+    async def _fetch_interesting_posts(self) -> list[PlatformPost]:
         """Fetch posts to potentially interact with.
 
         Uses reply mode (replies to my posts) as primary source.
@@ -332,7 +333,7 @@ class AgentBrain:
 
         # Primary: Get replies to my posts (no special permission needed)
         try:
-            replies = await self.threads.get_replies_to_my_posts(
+            replies = await self.platform.get_mentions(
                 max_posts=10,
                 max_replies_per_post=5,
             )
@@ -346,7 +347,7 @@ class AgentBrain:
             logger.info("fallback_to_search")
             for interest in self.persona.interests.primary[:3]:
                 try:
-                    search_result = await self.threads.search_posts(
+                    search_result = await self.platform.search(
                         query=interest,
                         limit=10,
                     )
@@ -369,7 +370,7 @@ class AgentBrain:
 
         return unique_posts[:20]  # Max 20 posts to consider
 
-    async def _resolve_post_id(self, post: Post) -> Optional[str]:
+    async def _resolve_post_id(self, post: PlatformPost) -> Optional[str]:
         """Resolve a Threads Graph API friendly post ID.
 
         External sources may provide shortcodes/URLs; try to map them to an ID.
@@ -377,7 +378,7 @@ class AgentBrain:
         # Try as-is (may work if provider already supplies Graph ID)
         if post.id:
             try:
-                await self.threads.get_post(post.id)
+                await self.platform.get_post(post.id)
                 return post.id
             except Exception:
                 logger.debug("direct_id_failed", post_id=post.id, exc_info=True)
@@ -390,7 +391,7 @@ class AgentBrain:
         if post.text:
             query = post.text[:64]
             try:
-                search_result = await self.threads.search_posts(query=query, limit=5)
+                search_result = await self.platform.search(query=query, limit=5)
                 for candidate in search_result.posts:
                     if post.username and candidate.username and candidate.username.lower() != post.username.lower():
                         continue
@@ -401,7 +402,7 @@ class AgentBrain:
 
         return None
 
-    async def _interact_with_post(self, post: Post) -> tuple[InteractionResult, Optional[float], int]:
+    async def _interact_with_post(self, post: PlatformPost) -> tuple[InteractionResult, Optional[float], int]:
         """Generate and post a response to a specific post.
 
         Returns:
@@ -539,7 +540,7 @@ class AgentBrain:
                 delay = 1.0
                 for attempt in range(1, max_retries + 1):
                     try:
-                        return await self.threads.reply_to_post(target_post_id, response_with_signature)
+                        return await self.platform.reply(target_post_id, response_with_signature)
                     except ThreadsAPIError as e:
                         transient = (e.status_code and e.status_code >= 500) or (e.error_code == 2)
                         if not transient or attempt == max_retries:
@@ -572,7 +573,7 @@ class AgentBrain:
 
             # Verify target post still exists before replying
             try:
-                await self.threads.get_post(target_post_id)
+                await self.platform.get_post(target_post_id)
             except ThreadsAPIError as e:
                 if e.status_code == 404:
                     # Post was deleted or made private - skip this interaction
@@ -744,7 +745,7 @@ Guidelines:
         Returns:
             The post ID if successful, None otherwise.
         """
-        if not await self.threads.can_publish():
+        if not await self.platform.can_post():
             logger.warning("cannot_publish_rate_limit")
             return None
 
@@ -758,7 +759,7 @@ Guidelines:
         content_with_signature = content + ai_signature
 
         try:
-            post_id = await self.threads.create_post(content_with_signature)
+            post_id = await self.platform.post(content_with_signature)
 
             # Record in memory WITHOUT signature
             self.memory.record_interaction(
@@ -793,7 +794,7 @@ Guidelines:
         Returns:
             The post ID if successful, None otherwise.
         """
-        if not await self.threads.can_publish():
+        if not await self.platform.can_post():
             logger.warning("cannot_publish_rate_limit")
             return None
 
@@ -834,11 +835,11 @@ Guidelines:
     # Helpers
     # =========================================================================
 
-    def _should_skip_post(self, post: Post) -> bool:
+    def _should_skip_post(self, post: PlatformPost) -> bool:
         """Determine if a post should be skipped (self or already handled)."""
         return self._get_skip_reason(post) is not None
 
-    def _get_skip_reason(self, post: Post) -> str | None:
+    def _get_skip_reason(self, post: PlatformPost) -> str | None:
         """Get the reason for skipping a post, or None if should not skip."""
         if post.username and self._self_username and post.username == self._self_username:
             return "自己的貼文"
@@ -853,7 +854,7 @@ Guidelines:
         if self._self_username:
             return
         try:
-            profile = await self.threads.get_user_profile()
+            profile = await self.platform.get_user_profile()
             self._self_username = profile.username
         except Exception:
             logger.debug("self_profile_fetch_failed", exc_info=True)
