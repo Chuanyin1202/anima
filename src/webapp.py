@@ -627,7 +627,7 @@ async def api_stats():
     try:
         if brain and brain.memory:
             stats = await brain.memory.get_stats()
-            memory_count = stats.get("total", 0)
+            memory_count = stats.get("total_memories", 0)
     except Exception:
         pass
 
