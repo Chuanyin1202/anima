@@ -31,6 +31,7 @@ from .adapters import ThreadsAdapter
 from .agent.scheduler import AgentScheduler
 from .main import create_agent_brain
 from .threads import ThreadsClient, MockThreadsClient
+from .memory.mem0_adapter import MemoryType
 from .utils.config import get_settings
 from .utils.ideas import read_index, mark_posted, mark_skipped
 
@@ -578,6 +579,7 @@ def _render_html(title: str, body: str, include_modal: bool = False) -> HTMLResp
     <a href="/">Dashboard</a>
     <a href="/responses">回應紀錄</a>
     <a href="/posts">發文紀錄</a>
+    <a href="/memories">記憶庫</a>
     <a href="/healthz">健康檢查</a>
   </nav>
   <h1>{title}</h1>
@@ -778,6 +780,58 @@ async def post_idea(idea_id: str):
 
 
 # =============================================================================
+# Memory APIs
+# =============================================================================
+
+@app.get("/api/memories/stats")
+async def api_memory_stats():
+    """Get memory statistics."""
+    if not brain or not brain.memory:
+        raise HTTPException(status_code=503, detail="System initializing")
+    try:
+        stats = brain.memory.get_stats()
+        return {
+            "total_memories": stats.get("total_memories", 0),
+            "by_type": stats.get("by_type", {}),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to get stats: {exc}")
+
+
+@app.get("/api/memories")
+async def api_memories(type: Optional[str] = None, limit: int = 30):
+    """Get recent memories with optional type filter."""
+    if not brain or not brain.memory:
+        raise HTTPException(status_code=503, detail="System initializing")
+
+    try:
+        # Convert type string to MemoryType enum
+        memory_type = None
+        if type:
+            try:
+                memory_type = MemoryType(type)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid memory type: {type}")
+
+        memories = brain.memory.get_recent(limit=limit, memory_type=memory_type)
+
+        return [
+            {
+                "id": m.id,
+                "content": m.content,
+                "memory_type": m.memory_type.value,
+                "created_at": str(m.created_at)[:19],
+                "metadata": m.metadata,
+            }
+            for m in memories
+        ]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to get memories: {exc}")
+
+
+# =============================================================================
 # Page Routes
 # =============================================================================
 
@@ -975,3 +1029,136 @@ async def recent_posts():
     </table>
     """
     return _render_html("發文紀錄", body)
+
+
+@app.get("/memories", response_class=HTMLResponse)
+async def memories_page():
+    """View memory statistics and list."""
+    body = """
+    <!-- Stats Cards -->
+    <div class="stats-grid" id="memory-stats">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-total">-</div>
+        <div class="stat-label">總記憶</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-interaction">-</div>
+        <div class="stat-label">互動</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-observation">-</div>
+        <div class="stat-label">觀察</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-reflective">-</div>
+        <div class="stat-label">反思</div>
+      </div>
+    </div>
+
+    <!-- Filter Buttons -->
+    <div style="margin: 1rem 0;">
+      <button class="btn filter-btn active" data-type="">全部</button>
+      <button class="btn filter-btn" data-type="interaction">互動</button>
+      <button class="btn filter-btn" data-type="observation">觀察</button>
+      <button class="btn filter-btn" data-type="reflective">反思</button>
+    </div>
+
+    <!-- Memory List -->
+    <table id="memory-table">
+      <thead>
+        <tr>
+          <th style="width:100px">類型</th>
+          <th style="width:160px">時間</th>
+          <th>內容</th>
+        </tr>
+      </thead>
+      <tbody id="memory-tbody">
+        <tr><td colspan="3" class="empty-state">載入中...</td></tr>
+      </tbody>
+    </table>
+
+    <script>
+    const typeLabels = {
+      'interaction': '互動',
+      'observation': '觀察',
+      'reflective': '反思',
+      'episodic': '情節',
+      'semantic': '語義'
+    };
+
+    const typeBadgeClass = {
+      'interaction': 'badge-info',
+      'observation': 'badge-warning',
+      'reflective': 'badge-success'
+    };
+
+    let currentFilter = '';
+
+    // Load stats
+    async function loadStats() {
+      try {
+        const resp = await fetch('/api/memories/stats');
+        const data = await resp.json();
+        document.getElementById('stat-total').textContent = data.total_memories || 0;
+        document.getElementById('stat-interaction').textContent = data.by_type?.interaction || 0;
+        document.getElementById('stat-observation').textContent = data.by_type?.observation || 0;
+        document.getElementById('stat-reflective').textContent = data.by_type?.reflective || 0;
+      } catch (err) {
+        console.error('Failed to load stats:', err);
+      }
+    }
+
+    // Load memories
+    async function loadMemories(type = '') {
+      const tbody = document.getElementById('memory-tbody');
+      tbody.innerHTML = '<tr><td colspan="3" class="empty-state">載入中...</td></tr>';
+
+      try {
+        const url = type ? `/api/memories?type=${type}&limit=50` : '/api/memories?limit=50';
+        const resp = await fetch(url);
+        const memories = await resp.json();
+
+        if (!memories.length) {
+          tbody.innerHTML = '<tr><td colspan="3" class="empty-state">尚無記憶</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = memories.map(m => {
+          const typeLabel = typeLabels[m.memory_type] || m.memory_type;
+          const badgeClass = typeBadgeClass[m.memory_type] || '';
+          const content = m.content.length > 200 ? m.content.slice(0, 200) + '...' : m.content;
+          const author = m.metadata?.author ? `@${m.metadata.author}` : '';
+          const about = m.metadata?.about || '';
+
+          return `
+            <tr>
+              <td><span class="badge ${badgeClass}">${typeLabel}</span></td>
+              <td class="muted">${m.created_at}</td>
+              <td>
+                <div>${content}</div>
+                ${author || about ? `<div class="muted">${[author, about].filter(Boolean).join(' · ')}</div>` : ''}
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="3" class="empty-state">載入失敗: ${err}</td></tr>`;
+      }
+    }
+
+    // Filter button handlers
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.type;
+        loadMemories(currentFilter);
+      });
+    });
+
+    // Initial load
+    loadStats();
+    loadMemories();
+    </script>
+    """
+    return _render_html("記憶庫", body)
