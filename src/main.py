@@ -102,20 +102,6 @@ async def create_agent_brain(
         llm_model=settings.openai_model,
     )
 
-    # Initialize Threads client (real or mock) with adapter
-    if is_mock_mode:
-        logger.info("using_mock_threads_client")
-        threads_client = MockThreadsClient(
-            access_token=settings.threads_access_token,
-            user_id=settings.threads_user_id or "mock_user",
-        )
-    else:
-        threads_client = ThreadsClient(
-            access_token=settings.threads_access_token,
-            user_id=settings.threads_user_id,
-        )
-    platform = ThreadsAdapter(threads_client)
-
     # Initialize simulation logger
     simulation_logger = None
     if observation_mode:
@@ -136,7 +122,7 @@ async def create_agent_brain(
     # Create brain
     brain = AgentBrain(
         persona=persona,
-        platform=platform,
+        platform=None,  # set later when client context is active
         memory=memory,
         openai_client=openai_client,
         model=settings.openai_model,
@@ -415,16 +401,13 @@ async def async_main(args: argparse.Namespace) -> int:
         brain = await create_agent_brain(settings=settings, use_mock=use_mock)
 
         # Choose client based on mock setting
-        if use_mock:
-            client_class = MockThreadsClient
-        else:
-            client_class = ThreadsClient
+        client_class = MockThreadsClient if use_mock else ThreadsClient
 
         async with client_class(
             access_token=settings.threads_access_token or "mock_token",
             user_id=settings.threads_user_id or "mock_user",
         ) as threads:
-            # Update brain with context-managed adapter
+            # Attach adapter for the lifetime of this context
             brain.platform = ThreadsAdapter(threads)
 
             if args.mode == "daemon":

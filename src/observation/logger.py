@@ -10,7 +10,7 @@ from typing import Optional
 
 import structlog
 
-from ..threads import Post
+from ..adapters.protocol import PlatformPost
 from .models import (
     DecisionRecord,
     LabelRecord,
@@ -119,7 +119,7 @@ class SimulationLogger:
     # Record Logging
     # =========================================================================
 
-    def log_observation(self, post: Post) -> ObservationRecord:
+    def log_observation(self, post: PlatformPost) -> ObservationRecord:
         """Log an observed post.
 
         Args:
@@ -133,7 +133,7 @@ class SimulationLogger:
             text=post.text,
             username=post.username,
             timestamp=post.timestamp,
-            media_type=post.media_type.value if hasattr(post.media_type, 'value') else post.media_type,
+            media_type=post.media_type.value if hasattr(post.media_type, "value") else post.media_type,
             permalink=post.permalink,
         )
 
