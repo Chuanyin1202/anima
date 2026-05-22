@@ -49,11 +49,18 @@ class Settings(BaseSettings):
     )
 
     # Memory (Mem0)
+    vector_store: Literal["qdrant", "pgvector"] = Field(
+        default="qdrant", description="Vector store backend (qdrant or pgvector)"
+    )
     qdrant_url: str = Field(
         default="http://localhost:6333", description="Qdrant vector database URL"
     )
     qdrant_api_key: str | None = Field(
         default=None, description="Qdrant API key"
+    )
+    pgvector_url: str | None = Field(
+        default=None,
+        description="PostgreSQL connection string for pgvector (postgresql://user:pw@host:5432/db)",
     )
     database_url: str | None = Field(
         default=None, description="PostgreSQL connection string for Mem0 metadata"

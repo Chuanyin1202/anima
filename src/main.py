@@ -109,6 +109,8 @@ async def create_agent_brain(
         qdrant_api_key=settings.qdrant_api_key,
         database_url=settings.database_url,
         llm_model=settings.openai_model,
+        vector_store=settings.vector_store,
+        pgvector_url=settings.pgvector_url,
     )
 
     # Initialize simulation logger

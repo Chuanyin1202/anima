@@ -106,37 +106,27 @@ class AgentMemory:
         qdrant_api_key: Optional[str] = None,
         database_url: Optional[str] = None,
         llm_model: str = "gpt-5-mini",
+        vector_store: str = "qdrant",
+        pgvector_url: Optional[str] = None,
     ):
         self.agent_id = agent_id
         self.llm_model = llm_model
+        self.vector_store = vector_store
         self.qdrant_url = qdrant_url
         self.qdrant_api_key = qdrant_api_key
+        self.pgvector_url = pgvector_url
         self.collection_name = f"anima_{agent_id}"
 
-        # Patch mem0 qdrant adapter to avoid upserting vector=None (causes PointStruct errors)
-        self._patch_mem0_qdrant_update()
-
-        # Configure Mem0
-        # Parse URL to handle HTTPS connections properly
-        from urllib.parse import urlparse
-        parsed = urlparse(qdrant_url)
-
-        if parsed.scheme == "https":
-            # HTTPS: 保留呼叫者指定的 port，未提供時才回退到 443
-            qdrant_config = {
-                "host": parsed.hostname or parsed.netloc,
-                "port": parsed.port or 443,
-                "collection_name": f"anima_{agent_id}",
-            }
+        if vector_store == "qdrant":
+            # Patch mem0 qdrant adapter to avoid upserting vector=None (causes PointStruct errors)
+            self._patch_mem0_qdrant_update()
+            vector_store_block = self._build_qdrant_config(qdrant_url, qdrant_api_key, agent_id)
+        elif vector_store == "pgvector":
+            if not pgvector_url:
+                raise ValueError("vector_store=pgvector requires pgvector_url")
+            vector_store_block = self._build_pgvector_config(pgvector_url, agent_id)
         else:
-            # HTTP 可以直接用 url
-            qdrant_config = {
-                "url": qdrant_url,
-                "collection_name": f"anima_{agent_id}",
-            }
-
-        if qdrant_api_key:
-            qdrant_config["api_key"] = qdrant_api_key
+            raise ValueError(f"Unsupported vector_store: {vector_store}")
 
         config = {
             "llm": {
@@ -153,10 +143,7 @@ class AgentMemory:
                     "api_key": openai_api_key,
                 },
             },
-            "vector_store": {
-                "provider": "qdrant",
-                "config": qdrant_config,
-            },
+            "vector_store": vector_store_block,
             "custom_fact_extraction_prompt": CUSTOM_FACT_EXTRACTION_PROMPT,
             # Graph memory v1.1 enables relationship extraction between memories.
             # The "event: NONE" / vector=None issue is fixed by _patch_mem0_qdrant_update().
@@ -169,7 +156,45 @@ class AgentMemory:
 
         self.memory = Memory.from_config(config)
         self.dedup_threshold = 0.85  # 相似度閾值，超過視為重複
-        logger.info("memory_initialized", agent_id=agent_id)
+        logger.info("memory_initialized", agent_id=agent_id, vector_store=vector_store)
+
+    @staticmethod
+    def _build_qdrant_config(
+        qdrant_url: str, qdrant_api_key: Optional[str], agent_id: str
+    ) -> dict[str, Any]:
+        from urllib.parse import urlparse
+        parsed = urlparse(qdrant_url)
+        if parsed.scheme == "https":
+            qdrant_config: dict[str, Any] = {
+                "host": parsed.hostname or parsed.netloc,
+                "port": parsed.port or 443,
+                "collection_name": f"anima_{agent_id}",
+            }
+        else:
+            qdrant_config = {
+                "url": qdrant_url,
+                "collection_name": f"anima_{agent_id}",
+            }
+        if qdrant_api_key:
+            qdrant_config["api_key"] = qdrant_api_key
+        return {"provider": "qdrant", "config": qdrant_config}
+
+    @staticmethod
+    def _build_pgvector_config(pgvector_url: str, agent_id: str) -> dict[str, Any]:
+        from urllib.parse import urlparse
+        parsed = urlparse(pgvector_url)
+        return {
+            "provider": "pgvector",
+            "config": {
+                "user": parsed.username or "",
+                "password": parsed.password or "",
+                "host": parsed.hostname or "localhost",
+                "port": parsed.port or 5432,
+                "dbname": (parsed.path or "/").lstrip("/") or "postgres",
+                "collection_name": f"anima_{agent_id}",
+                "embedding_model_dims": 1536,
+            },
+        }
 
     @staticmethod
     def _patch_mem0_qdrant_update() -> None:
@@ -255,8 +280,8 @@ class AgentMemory:
 
         try:
             # Check both agent and user scopes (use search_limit for efficiency)
-            agent_memories = self.memory.get_all(agent_id=self.agent_id, limit=search_limit)
-            user_memories = self.memory.get_all(user_id=self.agent_id, limit=search_limit)
+            agent_memories = self.memory.get_all(filters={"agent_id": self.agent_id}, top_k=search_limit)
+            user_memories = self.memory.get_all(filters={"user_id": self.agent_id}, top_k=search_limit)
 
             all_items = (
                 agent_memories.get("results", []) +
@@ -302,9 +327,9 @@ class AgentMemory:
         try:
             # Search for similar content
             if user_id:
-                results = self.memory.search(query=content, user_id=user_id, limit=3)
+                results = self.memory.search(query=content, filters={"user_id": user_id}, top_k=3)
             elif agent_id:
-                results = self.memory.search(query=content, agent_id=agent_id, limit=3)
+                results = self.memory.search(query=content, filters={"agent_id": agent_id}, top_k=3)
             else:
                 return False
 
@@ -699,15 +724,15 @@ class AgentMemory:
         # Query agent memories (agent's responses stored with agent_id)
         agent_results = self.memory.search(
             query=query,
-            agent_id=self.agent_id,
-            limit=limit,
+            filters={"agent_id": self.agent_id},
+            top_k=limit,
         )
 
         # Query user memories (observations, legacy interactions)
         user_results = self.memory.search(
             query=query,
-            user_id=self.agent_id,
-            limit=limit,
+            filters={"user_id": self.agent_id},
+            top_k=limit,
         )
 
         # Merge and dedupe by ID
@@ -748,10 +773,10 @@ class AgentMemory:
             List of recent memory entries
         """
         # Get agent memories (agent's responses)
-        agent_memories = self.memory.get_all(agent_id=self.agent_id, limit=limit * 2)
+        agent_memories = self.memory.get_all(filters={"agent_id": self.agent_id}, top_k=limit * 2)
 
         # Get user memories (observations, legacy interactions)
-        user_memories = self.memory.get_all(user_id=self.agent_id, limit=limit * 2)
+        user_memories = self.memory.get_all(filters={"user_id": self.agent_id}, top_k=limit * 2)
 
         # Merge and dedupe
         seen_ids: set[str] = set()
@@ -795,8 +820,8 @@ class AgentMemory:
         if participant_id:
             participant_results = self.memory.search(
                 query=post_content,
-                user_id=participant_id,
-                limit=3,
+                filters={"user_id": participant_id},
+                top_k=3,
             )
             seen_ids = {m.id for m in memories}
             for item in participant_results.get("results", []):
@@ -837,60 +862,64 @@ class AgentMemory:
             return False
 
     def get_stats(self) -> dict:
-        """Get memory statistics directly from Qdrant.
+        """Get memory statistics.
 
+        For Qdrant: queries Qdrant HTTP API directly for speed.
+        For other vector stores: falls back to Mem0 get_all aggregation.
         Returns total count from collection and breakdown by memory_type.
         """
-        import requests
-
         total_memories = 0
         by_type: dict[str, int] = {}
 
-        try:
-            # Build request headers
-            headers = {"Content-Type": "application/json"}
-            if self.qdrant_api_key:
-                headers["api-key"] = self.qdrant_api_key
+        if self.vector_store == "qdrant":
+            import requests
 
-            # Get collection info for total count
-            collection_url = f"{self.qdrant_url}/collections/{self.collection_name}"
-            resp = requests.get(collection_url, headers=headers, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                total_memories = data.get("result", {}).get("points_count", 0)
+            try:
+                headers = {"Content-Type": "application/json"}
+                if self.qdrant_api_key:
+                    headers["api-key"] = self.qdrant_api_key
 
-            # Get breakdown by memory_type using scroll with filter
-            memory_types = ["observation", "interaction", "reflective"]
-            for mem_type in memory_types:
-                count_url = f"{self.qdrant_url}/collections/{self.collection_name}/points/count"
-                filter_body = {
-                    "filter": {
-                        "must": [
-                            {"key": "memory_type", "match": {"value": mem_type}}
-                        ]
-                    },
-                    "exact": True,
-                }
-                count_resp = requests.post(
-                    count_url, headers=headers, json=filter_body, timeout=10
-                )
-                if count_resp.status_code == 200:
-                    count_data = count_resp.json()
-                    by_type[mem_type] = count_data.get("result", {}).get("count", 0)
+                collection_url = f"{self.qdrant_url}/collections/{self.collection_name}"
+                resp = requests.get(collection_url, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    total_memories = data.get("result", {}).get("points_count", 0)
 
-        except Exception as e:
-            logger.warning("get_stats_qdrant_failed", error=str(e))
-            # Fallback to Mem0 query if Qdrant direct access fails
-            agent_memories = self.memory.get_all(agent_id=self.agent_id, limit=5000)
-            user_memories = self.memory.get_all(user_id=self.agent_id, limit=5000)
-            seen_ids: set[str] = set()
-            for item in agent_memories.get("results", []) + user_memories.get("results", []):
-                item_id = item.get("id", "")
-                if item_id not in seen_ids:
-                    seen_ids.add(item_id)
-                    mem_type = item.get("metadata", {}).get("memory_type", "unknown")
-                    by_type[mem_type] = by_type.get(mem_type, 0) + 1
-            total_memories = len(seen_ids)
+                memory_types = ["observation", "interaction", "reflective"]
+                for mem_type in memory_types:
+                    count_url = f"{self.qdrant_url}/collections/{self.collection_name}/points/count"
+                    filter_body = {
+                        "filter": {
+                            "must": [
+                                {"key": "memory_type", "match": {"value": mem_type}}
+                            ]
+                        },
+                        "exact": True,
+                    }
+                    count_resp = requests.post(
+                        count_url, headers=headers, json=filter_body, timeout=10
+                    )
+                    if count_resp.status_code == 200:
+                        count_data = count_resp.json()
+                        by_type[mem_type] = count_data.get("result", {}).get("count", 0)
+
+                return {"total_memories": total_memories, "by_type": by_type}
+
+            except Exception as e:
+                logger.warning("get_stats_qdrant_failed", error=str(e))
+                # Fall through to mem0 aggregation
+
+        # Generic fallback via mem0 (works for any vector store)
+        agent_memories = self.memory.get_all(filters={"agent_id": self.agent_id}, top_k=5000)
+        user_memories = self.memory.get_all(filters={"user_id": self.agent_id}, top_k=5000)
+        seen_ids: set[str] = set()
+        for item in agent_memories.get("results", []) + user_memories.get("results", []):
+            item_id = item.get("id", "")
+            if item_id not in seen_ids:
+                seen_ids.add(item_id)
+                mem_type = item.get("metadata", {}).get("memory_type", "unknown")
+                by_type[mem_type] = by_type.get(mem_type, 0) + 1
+        total_memories = len(seen_ids)
 
         return {
             "total_memories": total_memories,
@@ -899,7 +928,7 @@ class AgentMemory:
 
     def get_skipped_records(self, limit: int = 50) -> list[dict]:
         """Get skipped post records for audit purposes."""
-        all_memories = self.memory.get_all(agent_id=self.agent_id, limit=1000)
+        all_memories = self.memory.get_all(filters={"agent_id": self.agent_id}, top_k=1000)
 
         skipped = []
         for item in all_memories.get("results", []):
