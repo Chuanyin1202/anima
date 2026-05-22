@@ -21,7 +21,7 @@ logger = structlog.get_logger()
 
 # 自定義記憶萃取 prompt
 # 角色區分由 mem0 的 agent_id vs user_id 機制自動處理
-# 這裡只需要：繁體中文 + 防止腦補
+# 設計重點：繁體中文 + 防止腦補 + 防止過度碎裂 + 保留 entity
 CUSTOM_FACT_EXTRACTION_PROMPT = """
 從對話中提取**實際出現**的重要資訊。
 
@@ -29,6 +29,9 @@ CUSTOM_FACT_EXTRACTION_PROMPT = """
 1. **只記錄明確說出的內容** - 絕對不要推理、腦補或延伸
 2. **使用繁體中文** - 所有記憶必須用繁體中文記錄
 3. **寧缺勿濫** - 如果沒有值得記住的事實，返回空陣列
+4. **完整陳述** - 每個 fact 必須是完整句子（主詞 + 主張 + 細節），禁止單一形容詞、孤立片段、單字斷句
+5. **合併而非拆碎** - 同一主題的相關陳述應合併成一個 fact；一段輸入通常 1-3 個 fact 就夠，極少超過 5 個
+6. **保留具體 entity** - fact 內必須包含可辨識元素（人名 / 產品名 / 數字 / 技術術語），避免抽象斷詞
 
 ## 範例
 
@@ -47,10 +50,18 @@ Output: {"facts": ["認為在咖啡廳工作換環境腦子就通了"]}
 Input: 我覺得創業最難的不是找資金，而是相信自己
 Output: {"facts": ["認為創業最難的是相信自己，而不是找資金"]}
 
+Input: 新聞報導 Lachy Groom 創立的 Physical Intelligence 推出機器人模型 π0，主打通用機器人，獲 4 億美元投資
+Output: {"facts": ["Physical Intelligence（創辦人 Lachy Groom）推出機器人模型 π0，主打通用機器人，獲 4 億美元投資"]}
+
+Input: 這個產品價格高、出圖快、解析度好，但買氣弱、廠商被迫降價，創業團隊壓力大
+Output: {"facts": ["該產品價格高但出圖快、解析度好；買氣弱導致廠商降價、創業團隊壓力大"]}
+
 ## 錯誤示範（絕對不要這樣做）
 ❌ "thinks AI is interesting" → 不要用英文
 ❌ "在咖啡廳工作錢包也空了" → 對話沒提到，不要腦補
 ❌ "可能對設計有興趣" → 不要推測，只記錄明確說出的
+❌ ["價格高", "出圖快", "買氣弱", "解析度高", "風格一致", "商機流失"] → 孤立片段堆疊，必須合併成完整陳述
+❌ 把同一新聞拆成 5 條獨立 fact（"Lachy Groom 是創辦人"、"Physical Intelligence 團隊背景深厚"、"目標通用機器人"…）→ 應合併為 1-2 個完整 fact
 
 以 JSON 格式返回：{"facts": [...]}
 """
@@ -486,18 +497,22 @@ class AgentMemory:
         - participant's content → stored with user_id (USER_MEMORY_EXTRACTION_PROMPT)
         - agent's response → stored with agent_id (AGENT_MEMORY_EXTRACTION_PROMPT)
 
+        For original posts (interaction_type=="post") there is no participant; only
+        the agent's own response is recorded.
+
         Args:
             my_response: The response the agent gave
             context: The context/post being responded to
-            interaction_type: Type of interaction (reply, like, etc.)
+            interaction_type: Type of interaction (reply, like, post, etc.)
             post_id: The post ID being interacted with
             participant_id: Identifier for the participant (e.g., "participant_Alex")
 
         Returns:
             Dict with participant_memory_id and agent_memory_id (None if skipped due to duplicate)
         """
-        # Default to unknown if no participant_id provided
-        user_id = participant_id or "participant_unknown"
+        # Original posts have no participant. Otherwise default to unknown if absent.
+        is_original_post = interaction_type == "post"
+        user_id = participant_id or ("participant_unknown" if not is_original_post else None)
 
         metadata_base = {
             "interaction_type": interaction_type,
@@ -528,8 +543,8 @@ class AgentMemory:
                 "errors": ["empty_text"],
             }
 
-        # 1. Record participant's content (with semantic dedup)
-        if not self._is_duplicate_semantic(context, user_id=user_id):
+        # 1. Record participant's content (skip for original posts — no participant exists)
+        if not is_original_post and not self._is_duplicate_semantic(context, user_id=user_id):
             try:
                 participant_metadata = self._format_metadata(
                     MemoryType.INTERACTION,
@@ -576,10 +591,10 @@ class AgentMemory:
             skipped_count += 1
             logger.debug("agent_memory_skipped_duplicate")
 
-        # 3. Copy participant summary to agent scope (with semantic dedup)
+        # 3. Copy participant summary to agent scope (skip for original posts)
         summary_content = context[:300] + "..." if len(context) > 300 else context
         summary_text = f"[{user_id}] {summary_content}"
-        if not self._is_duplicate_semantic(summary_text, user_id=self.agent_id):
+        if not is_original_post and not self._is_duplicate_semantic(summary_text, user_id=self.agent_id):
             try:
                 summary_metadata = self._format_metadata(
                     MemoryType.INTERACTION,
