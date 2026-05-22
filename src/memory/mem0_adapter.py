@@ -128,6 +128,11 @@ class AgentMemory:
         self.pgvector_url = pgvector_url
         self.collection_name = f"anima_{agent_id}"
 
+        # mem0 2.0.2's _is_reasoning_model only recognizes "gpt-5o-mini" (wrong name).
+        # Real OpenAI model "gpt-5-mini" falls through to common params and sends
+        # max_tokens, which gpt-5 series rejects → fact extraction silently fails.
+        self._patch_mem0_gpt5_detection()
+
         if vector_store == "qdrant":
             # Patch mem0 qdrant adapter to avoid upserting vector=None (causes PointStruct errors)
             self._patch_mem0_qdrant_update()
@@ -206,6 +211,38 @@ class AgentMemory:
                 "embedding_model_dims": 1536,
             },
         }
+
+    @staticmethod
+    def _patch_mem0_gpt5_detection() -> None:
+        """Monkey-patch mem0 _is_reasoning_model to recognize gpt-5 family.
+
+        mem0 2.0.2 hard-codes the model list with 'gpt-5o-mini' (incorrect name).
+        Real OpenAI model 'gpt-5-mini' falls through to _get_common_params, which
+        sends max_tokens. gpt-5 series rejects max_tokens (requires
+        max_completion_tokens), so every fact extraction silently fails.
+
+        This patch makes any model whose base name starts with 'gpt-5' be treated
+        as a reasoning model, which causes mem0 to strip unsupported params.
+        """
+        try:
+            from mem0.llms.base import LLMBase
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mem0_gpt5_patch_import_failed", error=str(exc))
+            return
+
+        if getattr(LLMBase, "_anima_gpt5_patched", False):
+            return
+
+        original = LLMBase._is_reasoning_model
+
+        def patched(self, model: str) -> bool:  # type: ignore[override]
+            if original(self, model):
+                return True
+            base = (model or "").lower().rsplit("/", 1)[-1]
+            return base.startswith("gpt-5")
+
+        LLMBase._is_reasoning_model = patched
+        LLMBase._anima_gpt5_patched = True
 
     @staticmethod
     def _patch_mem0_qdrant_update() -> None:
